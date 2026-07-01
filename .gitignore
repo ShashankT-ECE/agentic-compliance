@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+*.egg
+
+# Node
+node_modules/
+dist/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+backend/data/circulars/*
+backend/data/extracted/*
+backend/data/locked_fsms/*
+!backend/data/**/.gitkeep
+
+# Docker
+docker-data/

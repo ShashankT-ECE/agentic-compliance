@@ -1,0 +1,2 @@
+Test fixture — circular text slice for parser tests.
+Replace with an excerpt from a real SEBI circular during development.

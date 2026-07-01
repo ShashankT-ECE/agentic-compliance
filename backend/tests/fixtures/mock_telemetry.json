@@ -1,0 +1,11 @@
+{
+  "description": "Mock telemetry fixture for evaluator tests.",
+  "records": [
+    {
+      "broker_id": "BROKER001",
+      "timestamp": "2026-06-01T00:00:00Z",
+      "event_type": "order_submitted",
+      "payload": {}
+    }
+  ]
+}

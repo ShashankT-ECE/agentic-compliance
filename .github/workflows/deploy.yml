@@ -1,0 +1,17 @@
+# Deploy workflow for Agentic Compliance
+# Triggers on push to main or manual dispatch
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "Deployment steps go here"

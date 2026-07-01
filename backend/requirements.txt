@@ -1,0 +1,16 @@
+# Agentic Compliance — Backend Python dependencies
+# TODO: Pin versions once decided
+
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+pydantic
+python-multipart
+pdfplumber
+pydot
+networkx
+cryptography
+pytest
+pytest-asyncio
+httpx
