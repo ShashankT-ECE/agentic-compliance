@@ -185,7 +185,7 @@ HybridFSM:
 
 ---
 
-### [ ] M4 — HITL Gate
+### [x] M4 — HITL Gate (Completed 2026-07-03)
 
 **Objective**: Build the human review gate between Node 2 and Node 3. Humans review extracted FSMs, approve or correct them, and locked FSMs are released to the evaluator.
 
@@ -210,12 +210,12 @@ HybridFSM:
 - `POST /pipeline/{id}/fsms/amend` — submit corrected FSM
 
 **Completion criteria:**
-- [ ] Locked FSM includes hash chain link, approval metadata, and original FSM data
-- [ ] Locked FSMs stored in `backend/data/locked_fsms/` (not committed to git — see `.gitignore`)
-- [ ] HITL endpoints accept approve/reject/amend with validation
-- [ ] Pipeline correctly resumes on approval or diverts on rejection
-- [ ] Hash chain verifies locked FSM integrity
-- [ ] Tests pass for all HITL paths (approve, reject, amend, invalid data)
+- [x] Locked FSM includes hash chain link, approval metadata, and original FSM data
+- [x] Locked FSMs stored in `backend/data/locked_fsms/` (not committed to git — see `.gitignore`)
+- [x] HITL endpoints accept approve/reject/amend with validation
+- [x] Pipeline correctly resumes on approval or diverts on rejection
+- [x] Hash chain verifies locked FSM integrity
+- [x] Tests pass for all HITL paths (approve, reject, amend, invalid data)
 
 ---
 

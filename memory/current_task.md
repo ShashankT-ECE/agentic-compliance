@@ -18,65 +18,78 @@ Shashank
 
 ## Current Feature
 
-M4 — HITL Gate (Human-in-the-Loop FSM review gate between Node 2 and Node 3)
+**M5 — Assertion Evaluator (Node 3)**
+
+Objective: Implement the deterministic compliance evaluator that matches broker telemetry events against approved LockedFSMs to produce `ComplianceVerdict` records.
 
 ---
 
 ## Current File
 
-*No active implementation file. M4 is the next milestone to implement.*
+*No active implementation file. M5 is the next milestone to implement.*
 
 ---
 
 ## Last Completed Step
 
-M3 (Hash Chain Utility) is complete:
-- `backend/app/utils/hash_chain.py` — `compute_hash`, `link`, `verify_chain`, `build_chain` (fully implemented in M0)
-- `backend/tests/test_hash_chain.py` — 20 tests: hashing, linking, verification, tamper detection (modified data, broken links, reordering), 1000+ links, JSON roundtrip
-- `backend/tests/test_models.py` — hash chain tests migrated out to dedicated file
-- 157 tests passing (70 M0 + 35 M1 + 34 M2 + 20 M3)
+M4 (HITL Gate) is complete:
+- `backend/app/models/locked_fsm.py` — `LockStatus`, `AmendmentRecord`, `LockedFSM` (6 Pydantic validators)
+- `backend/app/pipeline/nodes/hitl_gate.py` — `create_locked_fsms`, `approve_fsm`, `reject_fsm`, `amend_fsm`, integrity verification, persistence, `hitl_gate_node`
+- `backend/app/api/routes/pipeline.py` — 6 HITL endpoints (list, get, approve, reject, amend, review history)
+- `backend/app/pipeline/state.py` — `locked_fsms` type changed to `list[LockedFSM]`
+- `backend/tests/test_hitl.py` — 46 tests
 
-All memory files updated. M0, M1, M2, M3 marked complete in project_roadmap.md.
+M0-M4 are all complete. 203 tests passing. All memory files synchronized.
 
 ---
 
 ## Next Immediate Task
 
-Begin implementing M4 — HITL Gate. Start with:
-1. `backend/app/models/locked_fsm.py` — `LockedFSM` schema with hash chain integration
-2. `backend/app/pipeline/nodes/hitl_gate.py` — conditional routing logic
-3. `backend/app/api/routes/pipeline.py` — HITL review endpoints
+Begin implementing M5 — Assertion Evaluator (Node 3). Start with:
+
+1. `backend/app/utils/state_machine.py` — FSM evaluation engine (process events, match transitions, execute state changes)
+2. `backend/app/utils/timeline_evaluator.py` — deadline/offset computation (compute T+0, T+1, T+3 offsets from event timestamps)
+3. `backend/app/pipeline/nodes/evaluator.py` — evaluator node function (deterministic, NO LLM)
+4. `backend/tests/test_evaluator.py` — comprehensive evaluator tests
+5. `backend/tests/fixtures/mock_telemetry.json` — realistic event sequences
 
 ---
 
 ## Files To Open Next
 
-1. `memory/project_roadmap.md` — M4 completion criteria (line 188)
-2. `backend/app/models/scoreboard.py` — `HashLink`, `HashChain` models (needed for LockedFSM)
-3. `backend/app/utils/hash_chain.py` — `link()`, `verify_chain()` (needed for FSM locking)
-4. `backend/app/models/fsm.py` — `HybridFSM` model (wrapped by LockedFSM)
-5. `backend/app/pipeline/state.py` — `CompliancePipelineState` (HITL status fields)
-6. `backend/app/pipeline/nodes/hitl_gate.py` — scaffold TODO (create from scratch)
+1. `memory/project_roadmap.md` — M5 completion criteria (line 222)
+2. `backend/app/models/verdict.py` — `ComplianceVerdict`, `VerdictStatus` model (output target)
+3. `backend/app/models/locked_fsm.py` — `LockedFSM` model (input: `original_fsm: HybridFSM`)
+4. `backend/app/models/fsm.py` — `HybridFSM`, `FSMTransition`, `TimelineRule` (evaluation logic)
+5. `backend/app/models/telemetry.py` — `TelemetryEvent` (input event stream)
+6. `backend/app/pipeline/nodes/evaluator.py` — scaffold TODO (rewrite from scratch)
+7. `backend/app/utils/state_machine.py` — does not exist yet (create new)
+8. `backend/app/utils/timeline_evaluator.py` — does not exist yet (create new)
 
 ## Commands To Run
 
 ```bash
 cd backend && source .venv/bin/activate && python -m pytest tests/ -v
+# Expected: 203 passed (M0-M4)
 ```
 
 ---
 
 ## Known Issues
 
-- `backend/app/pipeline/nodes/hitl_gate.py` does not exist yet — needs to be created.
-- `backend/app/api/routes/pipeline.py` is a scaffold TODO.
-- `backend/data/locked_fsms/` directory does not exist yet — needs `.gitignore` entry.
+- `backend/app/pipeline/nodes/evaluator.py` is a scaffold TODO — needs full implementation.
+- `backend/app/utils/state_machine.py` does not exist — needs creation.
+- `backend/app/utils/timeline_evaluator.py` does not exist — needs creation.
+- `backend/app/utils/telemetry_gen.py` is a scaffold TODO — synthetic telemetry generator needed for tests.
+- `backend/tests/fixtures/mock_telemetry.json` is a placeholder — needs realistic event sequences.
+- No telemetry data has been generated yet.
 
 ---
 
 ## Warnings
 
-- HITL gate is a hard requirement — human must review FSMs before Node 3 executes.
-- Locked FSMs must be hash-chained using the M3 utility.
-- Locked FSM data stored in `backend/data/locked_fsms/` must be gitignored (production data).
-- Node 3 (Assertion Evaluator) must never call an LLM — this is a hard architectural constraint.
+- Node 3 (Assertion Evaluator) must **never** call an LLM — this is the single most important architectural constraint in the entire project.
+- The evaluator must be a pure function: same FSMs + same events → same verdicts. No randomness, no external API calls.
+- Time computations must use event timestamps, not wall clock time.
+- The evaluator receives `LockedFSM` instances (from M4), not raw `HybridFSM`. Unlock the `original_fsm` field for evaluation.
+- Every verdict must include an evidence trail: which events were matched, timeline status, current state.
