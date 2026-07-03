@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.fsm import CANONICAL_STATES, FSMState, FSMTransition, HybridFSM, TimelineRule
+from app.models.locked_fsm import LockedFSM, LockStatus
 from app.models.obligation import ObligationClause, ObligationType, TimelineParams
 from app.models.scoreboard import BrokerScore, HashChain, HashLink, ObligationResult, Scoreboard
 from app.models.telemetry import BrokerInfo, TelemetryEvent
@@ -821,11 +822,22 @@ class TestCompliancePipelineState:
                 ),
             ],
             locked_fsms=[
-                HybridFSM(
+                LockedFSM(
+                    fsm_id="FSM-FULLPIPETEST",
                     obligation_ref="CL-01",
                     circular_ref="SEBI/HO/MIRSD/2024/001",
-                    states=[FSMState(name="PENDING"), FSMState(name="COMPLIANT")],
-                    initial_state="PENDING",
+                    original_fsm=HybridFSM(
+                        fsm_id="FSM-FULLPIPETEST",
+                        obligation_ref="CL-01",
+                        circular_ref="SEBI/HO/MIRSD/2024/001",
+                        states=[FSMState(name="PENDING"), FSMState(name="COMPLIANT")],
+                        initial_state="PENDING",
+                    ),
+                    status=LockStatus.APPROVED,
+                    reviewer="shashank",
+                    reviewed_at=datetime(2026, 7, 3, 10, 0, 0),
+                    integrity_hash="a" * 64,
+                    hash_link=HashLink(index=0, data_hash="b" * 64, previous_hash="0" * 64, link_hash="c" * 64),
                 ),
             ],
             approved_by="shashank",

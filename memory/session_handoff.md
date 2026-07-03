@@ -168,3 +168,33 @@ M3's hash chain implementation was already functionally complete from M0 (`hash_
 ```
 
 **NOTE: This session's changes have NOT been committed or pushed.** Per the developer's instruction: "Do not commit. Do not push."
+
+---
+
+## 2026-07-03 (Session 5) — M4 HITL Gate ✅
+
+### Files created
+- `backend/app/models/locked_fsm.py` — `LockStatus` enum, `AmendmentRecord`, `LockedFSM` (6 Pydantic validators)
+- `backend/app/pipeline/nodes/hitl_gate.py` — `create_locked_fsms`, `approve_fsm`, `reject_fsm`, `amend_fsm`, `verify_locked_fsm_integrity`, `build_hitl_hash_chain`, `persist_locked_fsms`, `load_locked_fsms`, `hitl_gate_node`
+- `backend/tests/test_hitl.py` — 46 tests
+
+### Files modified
+- `backend/app/pipeline/state.py` — `locked_fsms` type: `list[HybridFSM]` → `list[LockedFSM]`
+- `backend/app/api/routes/pipeline.py` — 6 HITL endpoints (list, get, approve, reject, amend, review history)
+- `backend/tests/test_models.py` — updated `test_full_pipeline_state_roundtrip` for LockedFSM
+
+### M4 Completion Criteria — all met
+- Locked FSM includes hash chain link, approval metadata, and original FSM data
+- Locked FSMs stored in `data/locked_fsms/{run_id}/` (individual JSON, pipeline state, review log, hash chain)
+- 6 API endpoints with proper status codes (200, 400, 404, 409, 422, 500)
+- Pipeline pause/resume: `AWAITING_APPROVAL` → `APPROVED` on all-resolved, `REJECTED` on any-rejected
+- Hash chain verifies locked FSM integrity; tamper detection works
+- 46 tests covering all HITL paths
+
+### Test Results
+```
+203 passed, 1 warning in 0.83s
+68 M0 + 35 M1 + 34 M2 + 20 M3 + 46 M4
+```
+
+**NOTE: This session's changes have NOT been committed or pushed.**

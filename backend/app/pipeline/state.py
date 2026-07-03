@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.models.fsm import HybridFSM
+from app.models.locked_fsm import LockedFSM
 from app.models.obligation import ObligationClause
 from app.models.scoreboard import Scoreboard
 from app.models.telemetry import TelemetryEvent
@@ -141,9 +142,9 @@ class CompliancePipelineState(BaseModel):
     # HITL gate output — Locked FSMs
     # ------------------------------------------------------------------
 
-    locked_fsms: list[HybridFSM] = Field(
+    locked_fsms: list[LockedFSM] = Field(
         default_factory=list,
-        description="Human-approved FSMs, ready for deterministic evaluation",
+        description="Human-approved LockedFSMs, ready for deterministic evaluation",
     )
     approved_by: str | None = Field(
         default=None,
