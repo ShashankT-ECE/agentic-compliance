@@ -371,3 +371,261 @@ def _replace_in_list(locked_fsms: list[LockedFSM], updated: LockedFSM) -> None:
         if lfsm.locked_fsm_id == updated.locked_fsm_id:
             locked_fsms[i] = updated
             return
+
+
+# =========================================================================
+# M7 — Pipeline trigger, status, result endpoints
+# =========================================================================
+
+
+class TriggerRequest(BaseModel):
+    """Request body for POST /pipeline/trigger."""
+
+    circular_path: str = Field(..., min_length=1, description="Filesystem path to the SEBI circular PDF")
+    circular_id: str = Field(..., min_length=1, description="SEBI circular reference number")
+    telemetry: list[dict[str, Any]] = Field(default_factory=list, description="Optional initial telemetry events")
+
+
+class TriggerResponse(BaseModel):
+    """Response for POST /pipeline/trigger."""
+
+    run_id: str
+    status: str
+    message: str
+
+
+class StatusResponse(BaseModel):
+    """Response for GET /pipeline/status/{run_id}."""
+
+    run_id: str
+    circular_id: str
+    status: str
+    total_fsms: int
+    pending: int
+    approved: int
+    rejected: int
+    amended: int
+    verdict_count: int
+    scoreboard_id: str | None
+    created_at: str | None
+
+
+class ResultResponse(BaseModel):
+    """Response for GET /pipeline/result/{run_id}."""
+
+    run_id: str
+    circular_id: str
+    status: str
+    verdicts: list[dict[str, Any]]
+    scoreboard: dict[str, Any] | None
+
+
+@router.post("/trigger", response_model=TriggerResponse, status_code=201)
+async def trigger_pipeline(request: TriggerRequest) -> dict[str, Any]:
+    """Start a new compliance pipeline run.
+
+    Parses the SEBI circular PDF, extracts FSMs, and pauses at the HITL
+    gate for human review.  Returns immediately with the run_id.
+    """
+    import asyncio
+
+    from app.api.deps import get_runner
+    from app.models.telemetry import TelemetryEvent
+
+    runner = get_runner()
+
+    # Convert telemetry dicts to TelemetryEvent models
+    telemetry_events: list[TelemetryEvent] = []
+    for t in request.telemetry:
+        try:
+            telemetry_events.append(TelemetryEvent.model_validate(t))
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid telemetry event: {t}")
+
+    try:
+        state = await runner.start(
+            circular_path=request.circular_path,
+            circular_id=request.circular_id,
+            telemetry_events=telemetry_events,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Pipeline trigger failed")
+        raise HTTPException(status_code=500, detail=f"Pipeline trigger failed: {exc}")
+
+    return {
+        "run_id": state.run_id,
+        "status": str(state.status.value),
+        "message": "Pipeline started. FSM extraction complete — awaiting human review at HITL gate.",
+    }
+
+
+@router.get("/status/{run_id}", response_model=StatusResponse)
+def get_pipeline_status(run_id: str) -> dict[str, Any]:
+    """Get the current status of a pipeline run."""
+    from app.api.deps import get_run
+    from app.pipeline.nodes.hitl_gate import load_locked_fsms
+
+    state = get_run(run_id)
+    if state is None:
+        # Check if the run exists on disk (from HITL persistence)
+        try:
+            locked_fsms = load_locked_fsms(run_id)
+        except Exception:
+            raise HTTPException(status_code=404, detail=f"Pipeline run '{run_id}' not found")
+
+        counts = _count_fsms(locked_fsms)
+        return {
+            "run_id": run_id,
+            "circular_id": locked_fsms[0].circular_ref if locked_fsms else "UNKNOWN",
+            "status": "awaiting_approval" if counts["pending"] > 0 else "resolved",
+            "total_fsms": len(locked_fsms),
+            **counts,
+            "verdict_count": 0,
+            "scoreboard_id": None,
+            "created_at": None,
+        }
+
+    verdicts = state.compliance_verdicts
+    scoreboard = state.scoreboard
+
+    return {
+        "run_id": run_id,
+        "circular_id": state.circular_id,
+        "status": str(state.status.value),
+        "total_fsms": len(state.locked_fsms),
+        "pending": 0,
+        "approved": 0,
+        "rejected": 0,
+        "amended": 0,
+        "verdict_count": len(verdicts),
+        "scoreboard_id": scoreboard.scoreboard_id if scoreboard else None,
+        "created_at": state.metadata.get("started_at", ""),
+    }
+
+
+@router.get("/result/{run_id}", response_model=ResultResponse)
+def get_pipeline_result(run_id: str) -> dict[str, Any]:
+    """Get the complete result of a pipeline run (verdicts + scoreboard)."""
+    from app.api.deps import get_run
+
+    state = get_run(run_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Pipeline run '{run_id}' not found")
+
+    status = str(state.status.value)
+    if status not in ("completed", "evaluated", "generating_scoreboard"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Pipeline run '{run_id}' is not complete (status: {status})",
+        )
+
+    verdicts = state.compliance_verdicts
+    scoreboard = state.scoreboard
+
+    return {
+        "run_id": run_id,
+        "circular_id": state.circular_id,
+        "status": status,
+        "verdicts": [_serialize_verdict(v) for v in verdicts],
+        "scoreboard": scoreboard.model_dump(mode="json", exclude_none=True) if scoreboard else None,
+    }
+
+
+# =========================================================================
+# M7 — Simplified HITL endpoints (operate on the most recent run by default)
+# =========================================================================
+
+
+class HitlListResponse(BaseModel):
+    """Response for GET /pipeline/hitl."""
+
+    runs: list[dict[str, Any]]
+
+
+@router.get("/hitl", response_model=HitlListResponse)
+def list_hitl_runs(run_id: str | None = None) -> dict[str, Any]:
+    """List HITL review items.
+
+    If run_id is provided, returns FSMs for that specific run.
+    Otherwise returns all runs with pending FSMs.
+    """
+    if run_id:
+        return _get_hitl_for_run(run_id)
+
+    # Scan all runs for awaiting-approval status
+    from app.pipeline.runner import get_all_runs
+
+    all_runs = get_all_runs()
+    awaiting = [r for r in all_runs if r["status"] == "awaiting_approval"]
+    return {"runs": awaiting}
+
+
+def _get_hitl_for_run(run_id: str) -> dict[str, Any]:
+    """Get HITL details for a specific run."""
+    from app.pipeline.nodes.hitl_gate import load_locked_fsms
+
+    try:
+        locked_fsms = load_locked_fsms(run_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Pipeline run '{run_id}' not found")
+
+    if not locked_fsms:
+        raise HTTPException(status_code=404, detail=f"No FSMs found for run '{run_id}'")
+
+    pending_fsms = [f for f in locked_fsms if f.status == LockStatus.PENDING_REVIEW]
+
+    return {
+        "run_id": run_id,
+        "circular_ref": locked_fsms[0].circular_ref,
+        "total_fsms": len(locked_fsms),
+        "pending": len(pending_fsms),
+        "fsms": [f.model_dump(mode="json", exclude_none=True) for f in pending_fsms],
+    }
+
+
+@router.post("/hitl/{fsm_id}/approve")
+def hitl_approve(fsm_id: str, run_id: str, action: ReviewAction) -> dict[str, Any]:
+    """Approve a LockedFSM by its fsm_id (simplified route)."""
+    # Delegate to the existing approve endpoint
+    return approve_fsm_endpoint(run_id, fsm_id, action)
+
+
+@router.post("/hitl/{fsm_id}/reject")
+def hitl_reject(fsm_id: str, run_id: str, action: ReviewAction) -> dict[str, Any]:
+    """Reject a LockedFSM by its fsm_id (simplified route)."""
+    if not action.review_comments or not action.review_comments.strip():
+        raise HTTPException(status_code=400, detail="review_comments is required for rejection")
+    return reject_fsm_endpoint(run_id, fsm_id, action)
+
+
+@router.post("/hitl/{fsm_id}/amend")
+def hitl_amend(fsm_id: str, run_id: str, action: AmendAction) -> dict[str, Any]:
+    """Amend a LockedFSM by its fsm_id (simplified route)."""
+    return amend_fsm_endpoint(run_id, fsm_id, action)
+
+
+# =========================================================================
+# Helpers
+# =========================================================================
+
+
+def _count_fsms(locked_fsms: list[Any]) -> dict[str, int]:
+    """Count FSMs by status."""
+    return {
+        "pending": sum(1 for f in locked_fsms if str(f.status) == "pending_review"),
+        "approved": sum(1 for f in locked_fsms if str(f.status) == "approved"),
+        "rejected": sum(1 for f in locked_fsms if str(f.status) == "rejected"),
+        "amended": sum(1 for f in locked_fsms if str(f.status) == "amended"),
+    }
+
+
+def _serialize_verdict(verdict: Any) -> dict[str, Any]:
+    """Serialize a ComplianceVerdict to a JSON-safe dict."""
+    try:
+        return verdict.model_dump(mode="json", exclude_none=True)
+    except AttributeError:
+        return dict(verdict)
