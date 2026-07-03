@@ -69,7 +69,7 @@ This is the single SEBI circular used by every milestone in V1. All extracted ob
 
 ## Implementation Milestones
 
-### [ ] M0 — Foundation: Data Models & Pipeline State
+### [x] M0 — Foundation: Data Models & Pipeline State (Completed 2026-07-03)
 
 **Objective**: Define every data structure the pipeline touches. Nothing downstream works without these schemas.
 
@@ -87,16 +87,16 @@ This is the single SEBI circular used by every milestone in V1. All extracted ob
 **Dependencies:** None (root of the dependency tree)
 
 **Completion criteria:**
-- [ ] All Pydantic models defined with full type annotations and validators
-- [ ] Pipeline state schema includes all fields needed by all 4 nodes
-- [ ] Hash chain interface defined (types: `HashLink`, `HashChain`; functions: `compute_hash`, `link`, `verify`)
-- [ ] Database connection configured with async SQLAlchemy
-- [ ] All models have `model_validate` tests with representative data
-- [ ] `backend/requirements.txt` is current (already done)
+- [x] All Pydantic models defined with full type annotations and validators
+- [x] Pipeline state schema includes all fields needed by all 4 nodes
+- [x] Hash chain interface defined (types: `HashLink`, `HashChain`; functions: `compute_hash`, `link`, `verify`)
+- [x] Database connection configured with async SQLAlchemy
+- [x] All models have `model_validate` tests with representative data
+- [x] `backend/requirements.txt` is current (already done)
 
 ---
 
-### [ ] M1 — PDF Parser (Node 1)
+### [x] M1 — PDF Parser (Node 1) (Completed 2026-07-03)
 
 **Objective**: Extract structured obligation clauses from a SEBI circular PDF. This is the system's entry point.
 
@@ -112,16 +112,16 @@ This is the single SEBI circular used by every milestone in V1. All extracted ob
 **LLM boundary:** Parser calls LLM to extract structured clauses from raw text. The abstraction makes this swappable.
 
 **Completion criteria:**
-- [ ] `pdf_ingest.py` extracts clean text from PDF files (handles multi-column layouts)
-- [ ] Parser node produces `List[ObligationClause]` from a real circular text slice
-- [ ] Each clause includes: clause_id, clause_text, obligation_type (timeline), timeline_params (offset, grace_period, unit), effective_date, applicable_entities
-- [ ] Edge cases handled: malformed PDFs, missing fields in circular
-- [ ] Tests pass with at least one real circular excerpt
-- [ ] NO placeholder business logic
+- [x] `pdf_ingest.py` extracts clean text from PDF files (handles multi-column layouts)
+- [x] Parser node produces `List[ObligationClause]` from a real circular text slice
+- [x] Each clause includes: clause_id, clause_text, obligation_type (timeline), timeline_params (offset, grace_period, unit), effective_date, applicable_entities
+- [x] Edge cases handled: malformed PDFs, missing fields in circular
+- [x] Tests pass with at least one real circular excerpt
+- [x] NO placeholder business logic
 
 ---
 
-### [ ] M2 — FSM Extractor (Node 2)
+### [x] M2 — FSM Extractor (Node 2) (Completed 2026-07-03)
 
 **Objective**: Transform parsed obligation clauses into hybrid FSMs — the central abstraction of the system.
 
@@ -148,17 +148,17 @@ HybridFSM:
 ```
 
 **Completion criteria:**
-- [ ] FSM extractor produces `List[HybridFSM]` from `List[ObligationClause]`
-- [ ] FSMs correctly encode timeline-based obligations (deadlines relative to trigger events)
-- [ ] FSMs include all states: PENDING, DUE, COMPLIANT, LATE, NON_COMPLIANT
-- [ ] FSMs include at least one time-based transition (e.g., PENDING → LATE if deadline passes)
-- [ ] FSM validation rejects malformed state machines (unreachable states, missing transitions)
-- [ ] Extracted FSMs are persisted to `backend/data/extracted/` as JSON
-- [ ] Tests pass with parser output fixtures
+- [x] FSM extractor produces `List[HybridFSM]` from `List[ObligationClause]`
+- [x] FSMs correctly encode timeline-based obligations (deadlines relative to trigger events)
+- [x] FSMs include all states: PENDING, DUE, COMPLIANT, LATE, NON_COMPLIANT
+- [x] FSMs include at least one time-based transition (e.g., PENDING → LATE if deadline passes)
+- [x] FSM validation rejects malformed state machines (unreachable states, missing transitions)
+- [x] Extracted FSMs are persisted to `backend/data/extracted/` as JSON
+- [x] Tests pass with parser output fixtures
 
 ---
 
-### [ ] M3 — Hash Chain Utility
+### [x] M3 — Hash Chain Utility (Completed 2026-07-03)
 
 **Objective**: Build the verifiable hash chain that ensures audit trail integrity for locked FSMs and scoreboard entries.
 
@@ -177,11 +177,11 @@ HybridFSM:
 - Root hash anchors the chain (stored in pipeline state and scoreboard)
 
 **Completion criteria:**
-- [ ] `compute_hash`, `link`, `verify_chain` implemented and tested
-- [ ] Chain verification detects tampering (modified data, broken link, reordered links)
-- [ ] Hash chain can serialize/deserialize to JSON for storage
-- [ ] Edge cases: empty chain, single-link chain, chain with 1000+ links
-- [ ] Tests pass with tampering scenarios
+- [x] `compute_hash`, `link`, `verify_chain` implemented and tested
+- [x] Chain verification detects tampering (modified data, broken link, reordered links)
+- [x] Hash chain can serialize/deserialize to JSON for storage
+- [x] Edge cases: empty chain, single-link chain, chain with 1000+ links
+- [x] Tests pass with tampering scenarios
 
 ---
 
