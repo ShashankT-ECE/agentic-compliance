@@ -128,3 +128,43 @@ Key files to open for M3 or M4:
 - `backend/app/models/` — may need `locked_fsm.py` for M4
 
 **NOTE: This session's changes have NOT been committed or pushed.** Per the developer's instruction: "Do not commit. Do not push."
+
+---
+
+## 2026-07-03 (Session 4) — M3 Hash Chain Utility ✅
+
+### What was done
+M3's hash chain implementation was already functionally complete from M0 (`hash_chain.py` — `compute_hash`, `link`, `verify_chain`, `build_chain`). This session completed the remaining roadmap deliverables:
+
+- **Created `backend/tests/test_hash_chain.py`** — dedicated test file with 20 tests:
+  - `TestComputeHash` (5): bytes, dict, deterministic, key-order-independent, invalid type
+  - `TestLink` (2): genesis, chain
+  - `TestVerifyChain` (10): valid, empty, single, tampered, broken, reordered, HashChain object, wrong genesis, **1000+ links**
+  - `TestBuildChain` (2): build, empty
+  - `TestJsonRoundtrip` (2): roundtrip, empty chain roundtrip
+- **Removed** 17 hash chain tests from `test_models.py` (migrated to dedicated file)
+- **Removed** hash chain import from `test_models.py`
+- **Zero production code changes** — `hash_chain.py` unchanged
+
+### New tests added (2)
+- `test_1000_plus_links` — builds 1001-link chain, verifies, checks ordering, verifies tamper detection at scale
+- `test_roundtrip` — `build_chain` → `model_dump_json` → `model_validate_json` → `verify_chain` == True, all link fields preserved
+
+### M3 Completion Criteria
+
+| Criteria | Status |
+|----------|--------|
+| `compute_hash`, `link`, `verify_chain` implemented and tested | ✅ (M0) |
+| Chain verification detects tampering (modified data, broken link, reordered links) | ✅ |
+| Hash chain can serialize/deserialize to JSON for storage | ✅ (new roundtrip test) |
+| Edge cases: empty chain, single-link chain, chain with 1000+ links | ✅ (new 1000+ links test) |
+| Tests pass with tampering scenarios | ✅ |
+| Dedicated `test_hash_chain.py` file | ✅ |
+
+### Test Results
+```bash
+157 passed in 0.21s
+# 70 M0 models + 35 M1 parser + 34 M2 FSM + 20 M3 hash chain (17 migrated + 2 new + 1 reorganized)
+```
+
+**NOTE: This session's changes have NOT been committed or pushed.** Per the developer's instruction: "Do not commit. Do not push."
