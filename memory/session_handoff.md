@@ -9,174 +9,122 @@
 | **Date** | 2026-07-03 |
 | **Developer** | Shashank |
 | **Branch** | `dev` |
-| **Duration** | ~2 hours |
+| **Duration** | ~2.5 hours |
 | **Environment** | Linux |
 
 ## What Was Completed
 
-### M1 — PDF Parser (Node 1) ✅
+### M2 — FSM Extractor (Node 2) ✅
 
-Implemented the entire M1 milestone from `project_roadmap.md`:
+Implemented the entire M2 milestone from `project_roadmap.md`:
 
-**PDF ingestion (`backend/app/utils/pdf_ingest.py`):**
-- `PdfIngestError` custom exception with `pdf_path` and `reason`
-- `extract_text(pdf_path)` — primary entry point, extracts all text from multi-page PDFs, preserves section ordering
-- `extract_text_by_page(pdf_path)` — returns `list[str]` per page
-- Error handling: FileNotFoundError (missing), PdfIngestError (encrypted, corrupted, unreadable), empty PDFs return `""` with warning
-- Structured logging throughout with `logging.getLogger(__name__)`
-- Internal helpers: `_validate_path`, `_warn_if_empty`
+**FSM extractor node (`backend/app/pipeline/nodes/fsm_extractor.py`):**
+- `extract_fsms(clauses, circular_ref, llm_client)` — primary async entry point
+- `load_fsm_prompt_template()` — loads markdown prompt from `app/prompts/fsm_extractor_prompt.md`
+- `_parse_fsm_dict()` — dict-to-HybridFSM with pre-Pydantic checks:
+  - Canonical states validation (all 5 required)
+  - Minimum 3 transitions enforced
+  - Minimum 1 timeline rule enforced
+  - Initial state forced to PENDING
+  - Nested Pydantic validation for FSMState, FSMTransition, TimelineRule
+- `_validate_fsm_states()` — checks all 5 canonical states present before Pydantic
+- `persist_fsms(fsms, circular_ref, output_dir)` — writes each FSM as individual JSON file + `_index.json` manifest under `data/extracted/{circular_ref_slug}/`
+- `fsm_extractor_node(state, llm_client)` — LangGraph node function for M7 integration
+- Reuses `_extract_json_from_response` from parser.py (Node 1)
 
-**LLM client abstraction (`backend/app/utils/llm_client.py`):**
-- `LLMClient` abstract base class with `generate()` method
-- `DeepSeekClient` — concrete implementation using httpx (OpenAI-compatible API)
-- `MockLLMClient` — for testing, records all calls
-- `LLMClientError` — typed exception with status_code and detail
+**LLM prompt template (`backend/app/prompts/fsm_extractor_prompt.md`):**
+- 200+ line markdown system prompt
+- Complete HybridFSM schema definition with all 5 canonical states
+- Field mapping from ObligationClause.timeline_params → TimelineRule
+- 3 detailed examples using real SEBI circular obligations (CL-01 timeline T+1, CL-02 offset=0, CL-03 procedure)
+- 5 edge case rules (missing timeline_params, offset=0, procedure type, multiple entities, ambiguous triggers)
+- 7 output format rules
 
-**Parser node (`backend/app/pipeline/nodes/parser.py`):**
-- `parse_circular(raw_text, circular_ref, llm_client)` — primary async entry point
-- `load_prompt_template()` — loads markdown prompt from `app/prompts/parser_prompt.md`
-- `_extract_json_from_response()` — 3-pass JSON extraction (pure JSON, markdown fence, regex array find)
-- `_parse_clause_dict()` — dict-to-ObligationClause with Pydantic `model_validate`, type normalisation, circular_ref fill
-- `parser_node(state, llm_client)` — LangGraph node function for M7 integration (calls pdf_ingest + parser)
-- Handles: valid JSON, markdown-fenced JSON, JSON with surrounding text, partial valid clauses (some rejected), all-invalid rejection, empty text rejection
-- Temperature fixed at 0.1 for deterministic extraction
+**JSON extraction fix (M1 utility):**
+- `_extract_json_from_response` in `parser.py` updated to handle single JSON objects (not just arrays). Added 3 new extraction paths: raw single object, fenced single object, regex-extracted single object. Required for FSM extraction where the LLM may return `{...}` instead of `[{...}]`.
 
-**LLM prompt template (`backend/app/prompts/parser_prompt.md`):**
-- 153-line markdown system prompt
-- Role: regulatory compliance parser for Indian securities law
-- 9-step extraction instructions with linguistic markers
-- Full JSON schema mapping to `ObligationClause` model
-- 3 examples (timeline T+1, threshold, timeline with grace period + multiple entities)
-- 10 edge case rules (missing dates, ambiguous clauses, compound obligations, etc.)
-- 6 output format rules (JSON only, no fences, flat array, snake_case entities)
+**Tests (`backend/tests/test_fsm.py`):**
+- **34 tests, all passing**
+- `TestValidateFsmStates` (5): all 5 canonical states present, missing states, missing single state, missing states key, non-list states
+- `TestParseFsmDict` (10): valid timeline FSM, valid procedure FSM, circular_ref fill, initial_state override, too few transitions, missing timeline rules, missing states, invalid transition state, missing timeline fields, terminal state check
+- `TestFsmPromptLoading` (2): load default, nonexistent path
+- `TestExtractFsms` (12): successful 4-FSM extraction, empty clauses, empty LLM response, invalid JSON, LLM error propagation, partial valid survival, all-invalid raise, markdown-fenced response, single clause → single FSM, all 5 canonical states verification, deadline transition verification, unique FSM IDs
+- `TestPersistFsms` (4): writes files + index, empty FSMs, roundtrip re-read + validate, obligation traceability
+- `test_canonical_states_constant` (1): verify CANONICAL_STATES set
 
-**Test fixture (`backend/tests/fixtures/circular_slice.txt`):**
-- 83-line realistic SEBI circular excerpt
-- Reference: SEBI/HO/MIRSD/MIRSD-PoD-1/P/CIR/2024/001
-- 4 extractable obligations: T+1 margin report, T+2 settlement, INR 1 crore net worth, T+3 reconciliation with 1-day grace
-- Preamble, procedural, legal authority, and signature block (non-obligation text)
-
-**Tests (`backend/tests/test_parser.py`):**
-- **35 tests, all passing, zero warnings**
-- `TestPdfExtraction` (6): single/multi-page, per-page, missing file, non-PDF
-- `TestPromptLoading` (2): load default, nonexistent path
-- `TestJsonExtraction` (7): pure JSON, markdown fence, no tag fence, buried JSON, invalid, empty, object-not-array
-- `TestClauseDictParsing` (7): timeline/threshold/procedure, circular_ref fill, type normalization, missing timeline_params rejection, bad clause_id, date parsing
-- `TestParseCircular` (11): successful 4-clause extraction, empty text, whitespace, empty LLM array, invalid JSON, partial valid, all-invalid, LLMClientError propagation, markdown-fenced LLM, surrounding text, effective_date
-- `TestMockLLMClient` (2): returns configured response, records calls
-
-## M1 Completion Criteria Verification
+## M2 Completion Criteria Verification
 
 | Criteria | Status |
 |----------|--------|
-| `pdf_ingest.py` extracts clean text from PDF files (handles multi-column layouts) | ✅ Done (pdfplumber, multi-page, section ordering) |
-| Parser node produces `List[ObligationClause]` from a real circular text slice | ✅ Done (MockLLMClient with circular slice fixture) |
-| Each clause includes: clause_id, clause_text, obligation_type, timeline_params, effective_date, applicable_entities | ✅ All validated through Pydantic |
-| Edge cases handled: malformed PDFs, missing fields in circular | ✅ Encrypted/corrupted/missing/empty PDFs + partial valid clauses |
-| Tests pass with at least one real circular excerpt | ✅ 83-line realistic SEBI excerpt |
-| NO placeholder business logic | ✅ All production code |
+| FSM extractor produces `List[HybridFSM]` from `List[ObligationClause]` | ✅ Done |
+| FSMs correctly encode timeline-based obligations (deadlines relative to trigger events) | ✅ T+1 settlement, advance-of-trade, 90-day/30-day procedure fallbacks |
+| FSMs include all states: PENDING, DUE, COMPLIANT, LATE, NON_COMPLIANT | ✅ Enforced by `_validate_fsm_states` |
+| FSMs include at least one time-based transition (PENDING → LATE if deadline passes) | ✅ Enforced by min 1 timeline_rule check |
+| FSM validation rejects malformed state machines | ✅ Missing states, too few transitions, missing timeline rules, invalid transition states — all tested |
+| Extracted FSMs are persisted to `data/extracted/` as JSON | ✅ Individual FSM files + `_index.json` manifest |
+| Tests pass with parser output fixtures | ✅ 4 real obligations from SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57 |
 
 ## Files Changed (this session)
 
 ### New files:
-- `backend/app/utils/pdf_ingest.py` — PDF text extraction
-- `backend/app/utils/llm_client.py` — LLM client abstraction + DeepSeek + Mock
-- `backend/app/prompts/parser_prompt.md` — LLM system prompt (153 lines)
-- `backend/tests/fixtures/circular_slice.txt` — Realistic SEBI circular excerpt (83 lines)
+- `backend/app/prompts/fsm_extractor_prompt.md` — LLM system prompt for FSM generation
+- `backend/tests/test_fsm.py` — 34 comprehensive tests
 
 ### Rewritten files (were scaffold TODOs):
-- `backend/app/pipeline/nodes/parser.py` — Full parser node implementation
-- `backend/tests/test_parser.py` — 35 comprehensive tests
+- `backend/app/pipeline/nodes/fsm_extractor.py` — Full FSM extractor node
+
+### Modified files (required bug fix):
+- `backend/app/pipeline/nodes/parser.py` — `_extract_json_from_response` now handles single JSON objects (3 new extraction paths). Required because FSM LLM responses may be single objects `{...}` not arrays `[{...}]`.
+- `backend/tests/test_parser.py` — Updated `test_json_object_not_array` → `test_single_json_object_wrapped_in_list` to match new behavior
 
 ### Files NOT modified:
-- All M0 model files (obligation.py, telemetry.py, fsm.py, verdict.py, scoreboard.py)
+- All M0 model files (fsm.py, obligation.py, telemetry.py, verdict.py, scoreboard.py)
 - Pipeline state, hash chain, database
-- All existing tests still pass (85/85)
+- pdf_ingest.py, llm_client.py
+- All existing tests pass (85 M0 + 35 M1)
 
 ## Blockers
 
-None. M1 is self-contained. Ready for M2 (FSM Extractor).
+None. M2 is self-contained. Ready for M3 (Hash Chain Utility) or M4 (HITL Gate), depending on chosen ordering.
 
 ## Important Discoveries
 
-- The LLM client abstraction (`LLMClient` ABC + `DeepSeekClient` + `MockLLMClient`) makes the parser fully testable without API calls. This pattern should be reused in M2 (FSM Extractor also uses LLM).
-- The `_extract_json_from_response` 3-pass parser handles most real-world LLM output patterns (pure JSON, markdown fences, text-surrounded JSON). This logic should be extracted to a shared utility if M2 needs JSON parsing.
-- PDF test generation is done via minimal valid PDF byte construction — no external PDF creation library needed. The helper `_make_minimal_pdf()` in tests creates valid PDFs pdfplumber can read.
-- The prompt template is stored as a markdown file, not hardcoded in Python. This makes prompt iteration possible without code changes.
-- Python 3.10 f-string + bytes concatenation requires explicit `+` operators (implicit concatenation of `b""` and `f"".encode()` is a SyntaxError).
+- The `_extract_json_from_response` function in parser.py needed to handle single JSON objects — the FSM prompt allows the LLM to return `{...}` for a single FSM, not just `[{...}]`. The fix added 3 extraction paths (raw, fenced, regex) for single objects. This is a legitimate shared-utility fix, not an M1 redesign.
+- The FSM extractor enforces more pre-Pydantic checks than the parser (canonical states, min transitions, min timeline rules) because invalid FSMs are harder for the LLM to self-correct than invalid clauses. The extra validation catches structural errors early with clear messages.
+- `persist_fsms` uses a directory-per-circular structure with a `_index.json` manifest — this makes it easy to find FSMs for a specific circular without scanning all files.
+- The prompt instructs the LLM to generate a 90-day default deadline for procedure-type obligations — this is documented as a fallback with lower extraction confidence.
 
 ## Testing Performed
 
 ```bash
 cd backend && source .venv/bin/activate
 python -m pytest tests/ -v
-# 120 passed, 0 warnings in 0.13s
-# 85 M0 tests + 35 M1 tests
+# 154 passed in 0.17s
+# 85 M0 + 35 M1 + 34 M2
 ```
 
 ## Environment Notes
 
-- Linux, Python 3.10.12, Pydantic 2.x, pdfplumber, httpx
-- `DEEPSEEK_API_KEY` env var required for production use (parsed by `DeepSeekClient`)
+- Linux, Python 3.10.12, Pydantic 2.x
+- `data/extracted/` directory is created at runtime by `persist_fsms()` — no manual setup needed
 - All packages in requirements.txt are installed in the venv
 
 ---
 
 ## Last Words For The Next Developer
 
-M1 is done. The parser can extract text from PDFs and produce validated `List[ObligationClause]` via LLM. The next milestone is **M2 — FSM Extractor (Node 2)**. Start by reading `memory/project_roadmap.md` for M2's completion criteria.
+M2 is done. The FSM extractor converts obligation clauses into validated HybridFSMs and persists them to disk. The next milestones:
 
 Dependency chain:
 ```
-M0 ✅ → M1 ✅ → M2 (FSM Extractor) → M4 (HITL) → M5 (Evaluator) → M6 (Scoreboard) → M7 (API) → M8 (Frontend) → M9 (E2E)
-                    M3 (Hash Chain) can run alongside M1/M2 (only depends on M0)
+M0 ✅ → M1 ✅ → M2 ✅ → M4 (HITL Gate) → M5 (Evaluator) → M6 (Scoreboard) → M7 (API) → M8 (Frontend) → M9 (E2E)
+               M3 (Hash Chain) can run alongside M1/M2 (only depends on M0)
 ```
 
-Key files to open for M2:
-- `backend/app/pipeline/nodes/fsm_extractor.py` — FSM extraction node (current: scaffold TODO)
-- `backend/app/models/fsm.py` — HybridFSM model (already defined in M0, may need extraction logic)
-- `backend/tests/test_fsm.py` — existing placeholder
-- `backend/app/prompts/` — add `fsm_extractor_prompt.md` for the LLM prompt
-
-The LLM client abstraction (`app.utils.llm_client.LLMClient`) should be reused in M2 — the same `DeepSeekClient` and `MockLLMClient` work for any LLM-using node.
-
-**NOTE: This session's changes have NOT been committed or pushed.** Per the developer's instruction: "Do not commit. Do not push."
-
----
-
-## 2026-07-03 (Session 2) — M1 Verification Fix
-
-### Issue Identified
-The original `circular_slice.txt` fixture and `SAMPLE_LLM_RESPONSE` used AI-generated/fabricated regulatory text, violating:
-- M1 completion criterion: "Tests pass with at least one real circular excerpt"
-- Architecture constraint: "Obligations are always extracted from real SEBI circulars (never hand-authored)"
-
-### Fix Applied
-- **Replaced `circular_slice.txt`** with verbatim excerpt from real SEBI circular:
-  **SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57**, dated April 28, 2025
-  Subject: "Timelines for collection of Margins other than Upfront Margins – Alignment to settlement cycle"
-  Source: sebi.gov.in — verified published circular by Aradhana Verma, General Manager
-
-- **Updated `SAMPLE_LLM_RESPONSE`** to match real extractable obligations:
-  1. CIRC-2025-057-CL-01 (timeline): TMs/CMs collect margins by settlement day (T+1)
-  2. CIRC-2025-057-CL-02 (timeline): TMs/CMs collect VaR margins/ELM in advance of trade
-  3. CIRC-2025-057-CL-03 (procedure): Stock Exchanges amend bye-laws
-  4. CIRC-2025-057-CL-04 (procedure): Stock Exchanges disseminate to participants
-
-- **Updated all test assertions** to reference real circular data (CIRCULAR_REF, dates, entities, clause text)
-
-- **Updated all unit tests** in `TestClauseDictParsing` to use real clause text and entity names
-
-### Test Results
-120 passed, 0 warnings (85 M0 + 35 M1)
-
-### Traceability
-Every obligation in the test fixture and SAMPLE_LLM_RESPONSE is now directly traceable to a specific sentence in SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57:
-- CL-01: Para 3 ("The TMs/CMs shall be required to collect margins...by the settlement day")
-- CL-02: Para 4, 39.1.2 ("collect upfront VaR margins and ELM...in advance of trade")
-- CL-03: Para 6.1 ("make necessary amendments to the relevant bye-laws")
-- CL-04: Para 6.2 ("bring the provisions...to the notice of the market participants")
-- Effective date: Para 5 ("shall come into force from the date of its issuance" = April 28, 2025)
-- Addressees: Trading Members, Clearing Members, Recognized Stock Exchanges, Clearing Corporations
+Key files to open for M3 or M4:
+- `backend/app/utils/hash_chain.py` — hash chain utility (already implemented in M0, needs tests in M3)
+- `backend/app/pipeline/nodes/hitl_gate.py` — HITL gate (current: not yet created)
+- `backend/app/api/routes/pipeline.py` — HITL review endpoints (current: scaffold TODO)
+- `backend/app/models/` — may need `locked_fsm.py` for M4
 
 **NOTE: This session's changes have NOT been committed or pushed.** Per the developer's instruction: "Do not commit. Do not push."

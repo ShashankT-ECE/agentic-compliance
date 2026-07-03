@@ -302,10 +302,11 @@ This completes the extraction."""
         with pytest.raises(ValueError, match="Could not extract a valid JSON array"):
             _extract_json_from_response("")
 
-    def test_json_object_not_array(self):
-        """A single JSON object (not array) should fail."""
-        with pytest.raises(ValueError, match="Could not extract a valid JSON array"):
-            _extract_json_from_response('{"clause_id": "C-01"}')
+    def test_single_json_object_wrapped_in_list(self):
+        """A single JSON object (not array) should be wrapped in a list."""
+        result = _extract_json_from_response('{"clause_id": "C-01", "clause_text": "Test obligation text here."}')
+        assert len(result) == 1
+        assert result[0]["clause_id"] == "C-01"
 
 
 # ====================================================================

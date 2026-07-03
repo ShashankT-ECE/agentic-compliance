@@ -97,7 +97,17 @@ def _extract_json_from_response(raw_response: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             pass
 
-    # Attempt 2: Extract from markdown JSON fence
+    # Attempt 1.5: Single JSON object (not wrapped in array)
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            data = json.loads(stripped)
+            if isinstance(data, dict):
+                logger.debug("Parsed single JSON object, wrapping in list")
+                return [data]
+        except json.JSONDecodeError:
+            pass
+
+    # Attempt 2: Extract from markdown JSON fence (array or single object)
     fence_pattern = r"```(?:json)?\s*\n?(.*?)\n?```"
     matches = re.findall(fence_pattern, raw_response, re.DOTALL)
     for match in matches:
@@ -106,12 +116,21 @@ def _extract_json_from_response(raw_response: str) -> list[dict[str, Any]]:
             try:
                 data = json.loads(candidate)
                 if isinstance(data, list):
-                    logger.debug("Parsed JSON from markdown fence")
+                    logger.debug("Parsed JSON array from markdown fence")
                     return data
+            except json.JSONDecodeError:
+                pass
+        elif candidate.startswith("{"):
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, dict):
+                    logger.debug("Parsed single JSON object from markdown fence, wrapping in list")
+                    return [data]
             except json.JSONDecodeError:
                 continue
 
-    # Attempt 3: Find the outermost JSON array
+    # Attempt 3: Find the outermost JSON array or object
+    # Try array first
     array_pattern = r"\[.*\]"
     array_matches = re.findall(array_pattern, raw_response, re.DOTALL)
     for candidate in array_matches:
@@ -120,6 +139,17 @@ def _extract_json_from_response(raw_response: str) -> list[dict[str, Any]]:
             if isinstance(data, list):
                 logger.debug("Parsed JSON from extracted array")
                 return data
+        except json.JSONDecodeError:
+            continue
+    # Try single object
+    object_pattern = r"\{.*\}"
+    object_matches = re.findall(object_pattern, raw_response, re.DOTALL)
+    for candidate in object_matches:
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict):
+                logger.debug("Parsed single JSON object from extracted text, wrapping in list")
+                return [data]
         except json.JSONDecodeError:
             continue
 
