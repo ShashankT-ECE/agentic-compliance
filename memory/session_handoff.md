@@ -10,7 +10,7 @@
 | **Developer** | Brad (Friend — Windows + WSL2) |
 | **Branch** | `dev` |
 | **Environment** | Linux (WSL2) |
-| **Repository State** | M0–M5 complete, M6 next |
+| **Repository State** | M0–M6 complete, M7 next |
 
 ## Completed Milestones
 
@@ -34,62 +34,64 @@
 - 20 tests
 
 ### M4 — HITL Gate ✅
-- `locked_fsm.py`: `LockedFSM` model with 6 Pydantic validators, `AmendmentRecord`, `LockStatus`
+- `locked_fsm.py`: `LockedFSM` model with 6 Pydantic validators
 - `hitl_gate.py`: approval/rejection/amendment workflow
 - 46 tests
 
-### M5 — Assertion Evaluator (Node 3) ✅ ← NEW
-- `state_machine.py`: deterministic FSM executor consuming HybridFSM
-- `timeline_evaluator.py`: deadline parsing (T+0/T+1/T+2/T+3), computation (end-of-day semantics), timeline rule evaluation
-- `telemetry_gen.py`: 9 synthetic telemetry sequence generators
-- `evaluator.py`: main evaluator — LockedFSMs + TelemetryEvents → ComplianceVerdicts with evidence trails
+### M5 — Assertion Evaluator (Node 3) ✅
+- `state_machine.py`: deterministic FSM executor
+- `timeline_evaluator.py`: deadline parsing, computation, timeline rule evaluation
+- `telemetry_gen.py`: synthetic telemetry sequence generators
+- `evaluator.py`: LockedFSMs + TelemetryEvents → ComplianceVerdicts with evidence trails
 - 69 tests
+
+### M6 — Scoreboard Generator (Node 4) ✅ ← NEW
+- `scoreboard.py`: aggregate ComplianceVerdicts by broker → Scoreboard with hash chain
+- `test_scoreboard.py`: 38 tests covering aggregation, counts, evidence summaries, hash chain, edge cases, determinism
+- Uses existing `HashChain` from M3 and model validators from M0
 
 ## Total Test Count
 
 ```
-272 passed, 1 warning in 2.05s
-68 M0 + 35 M1 + 34 M2 + 20 M3 + 46 M4 + 69 M5
+310 passed, 1 warning in 1.12s
+68 M0 + 35 M1 + 34 M2 + 20 M3 + 46 M4 + 69 M5 + 38 M6
 ```
 
 All tests pass with zero failures across all milestones.
 
-## M5 Architecture Compliance
+## M6 Design Summary
 
-- ✅ Node 3 has **zero LLM imports** — verified by AST analysis of all 4 M5 files and transitive dependencies
-- ✅ No HTTP calls (no `requests`, no `httpx`)
-- ✅ No randomness (no `random`, `secrets`, `uuid`)
-- ✅ 100% deterministic — verified with 10-run identity test
-- ✅ Replay consistency — `StateMachine.reset()` + replay = identical history
-- ✅ No scoreboarding, no LangGraph wiring, no HITL logic, no frontend code
-- ✅ Evaluator consumes approved `LockedFSM` models → produces `ComplianceVerdict` models
+**Field mappings (ComplianceVerdict → ObligationResult):**
+- `obligation_ref`, `fsm_ref`, `status`, `current_state`, `evaluated_at` → direct passthrough
+- `evidence` dict → `evidence_summary` string: "N/M events matched, K transitions, timeline: [...]"
 
-## M5 Key Design Decisions
+**Aggregation logic:**
+- Group verdicts by `broker_id`, sorted alphabetically (deterministic ordering)
+- `compliance_rate = compliant / (total - pending)`, or `1.0` if all pending
+- One `BrokerScore` per broker, one `ObligationResult` per verdict
+- Hash chain built from serialized broker summaries via M3 `build_chain()`
 
-1. **State machine uses HybridFSM model directly** — validates structural integrity on construction, builds O(1) transition lookup
-2. **First-match transition resolution** — deterministic when multiple transitions share a trigger
-3. **End-of-trading-day deadline semantics** — T+N = 23:59:59 UTC on target date
-4. **Timeline reference = earliest event timestamp** — unless explicit reference_time provided
-5. **Error-isolated evaluation** — bad FSM → error verdict, remaining FSMs continue
-6. **5-to-3 status mapping** — canonical PENDING/DUE→PENDING, COMPLIANT→COMPLIANT, LATE/NON_COMPLIANT→NON_COMPLIANT
-7. **Evidence trail**: per-event `matched` flags, full `transition_log`, `timeline_status` per rule
+**Key design decisions:**
+- Scoring logic lives entirely in `scoreboard.py` — not in models
+- Model validators (BrokerScore) catch inconsistency as a safety net
+- Evidence summary is a human-readable string, not structured data
+- Zero LLM dependency, fully deterministic
+
+## Files added/modified (M6)
+
+| File | Lines | Action |
+|------|-------|--------|
+| `backend/app/pipeline/nodes/scoreboard.py` | 197 | **Implemented** |
+| `backend/tests/test_scoreboard.py` | 302 | **Created** |
+| `memory/session_handoff.md` | — | **Updated** |
 
 ## Important Implementation Notes
 
-- `LockedFSM` requires `hash_link` and `integrity_hash` when APPROVED/AMENDED (M4 constraint)
-- `TimelineRule.overdue_transition` must exist in the FSM's states list (validated by HybridFSM model)
-- `ComplianceVerdict.verdict_id` and `evaluated_at` are auto-generated — determinism tests compare meaningful fields
-- `TelemetryGenerator` returns dicts with `datetime` objects as `timestamp` (compatible with `TelemetryEvent` model)
-
-## Key files added/modified
-
-| File | Lines | Status |
-|------|-------|--------|
-| `backend/app/utils/state_machine.py` | 195 | **Created** |
-| `backend/app/utils/timeline_evaluator.py` | 297 | **Created** |
-| `backend/app/utils/telemetry_gen.py` | 203 | **Implemented** |
-| `backend/app/pipeline/nodes/evaluator.py` | 222 | **Implemented** |
-| `backend/tests/test_evaluator.py` | 952 | **Created** |
+- `generate_scoreboard()` signature: `(verdicts: list[ComplianceVerdict], circular_id: str, metadata: dict | None = None) -> Scoreboard`
+- Empty verdicts → empty Scoreboard with `hash_chain=None`
+- Broker sort order is deterministic (alphabetical by `broker_id`)
+- Hash chain root hash is identical across runs for the same input
+- Scoreboard model validators enforce count consistency at construction time
 
 ## Known limitations
 
@@ -101,7 +103,7 @@ All tests pass with zero failures across all milestones.
 
 ## Next Milestone
 
-**M6 — Scoreboard Generator (Node 4)**
+**M7 — LangGraph Pipeline Wiring + API Routes**
 
 ## Exact Startup Instructions
 
@@ -112,13 +114,13 @@ git pull origin dev
 cd backend
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest tests/ -v        # verify 272 tests pass
+python -m pytest tests/ -v        # verify 310 tests pass
 ```
 
 Then read:
 1. `memory/project_handoff.md` — project overview
-2. `memory/project_roadmap.md` — M6 completion criteria
+2. `memory/project_roadmap.md` — M7 completion criteria
 3. `memory/current_task.md` — exact resume point
 4. This file — session history and implementation notes
 
-**NOTE: M5 changes have NOT been committed or pushed.**
+**NOTE: M6 changes have NOT been committed or pushed.**
