@@ -1,2 +1,81 @@
-Test fixture — circular text slice for parser tests.
-Replace with an excerpt from a real SEBI circular during development.
+SECURITIES AND EXCHANGE BOARD OF INDIA
+
+CIRCULAR
+
+Circular No. SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57                      April 28, 2025
+
+To,
+All recognised Stock Exchanges,
+All recognised Clearing Corporations
+(except Commodity Clearing Corporations)
+
+Sir / Madam,
+
+Sub: Timelines for collection of Margins other than Upfront Margins –
+     Alignment to settlement cycle
+
+1. The Master Circular for Stock Brokers dated August 09, 2024, requires
+   Trading Members (TMs) / Clearing Members (CMs) to collect margins from
+   clients in the cash segment (Para 39.1 refers).
+
+2. As per the existing provisions, TMs/CMs are required to mandatorily
+   collect upfront VaR margins and ELM from their clients. Further, they
+   had time till 'T+2' working days to collect margins (except VaR margins
+   and ELM) from their clients (Para 39.1.2 refers).
+
+3. However, effective January 27, 2023, settlement cycle has been reduced
+   from T+2 to T+1 across all scrips in cash market. In view of the same,
+   and based on the representations received from Brokers' Industry
+   Standards Forum (ISF) and to ensure robust risk management, it has been
+   decided that the TMs/CMs shall be required to collect margins (except
+   VaR margins and ELM) from their clients by the settlement day.
+
+4. Accordingly, the following modification is made to the Master Circular:
+
+   39.1.2. Henceforth, like in derivatives segment, the TMs/CMs in cash
+   segment are also required to mandatorily collect upfront VaR margins
+   and ELM from their clients in advance of trade. They will have time
+   till settlement day to collect margins (except VaR margins and ELM)
+   from their clients. (The clients must ensure that the VaR margins and
+   ELM are paid in advance of trade and other margins are paid as soon as
+   margin calls are made). The period till settlement day has been allowed
+   to TMs/CMs to collect margin from clients taking into account the
+   practical difficulties often faced by them only for the purpose of levy
+   of penalty and it should not be construed that clients have been
+   allowed time till settlement day to pay margin due from them.
+
+   39.1.3. If pay-in (both funds and securities) is made by settlement
+   day, the other margins would deemed to have been collected and penalty
+   for short / non collection of other margins shall not arise.
+
+   39.1.5. If client fails to make pay-in by settlement day and TM/CM do
+   not collect other margins from the client by settlement day, the same
+   shall also result in levy of penalty as applicable.
+
+5. The circular shall come into force from the date of its issuance.
+
+6. The recognized Stock Exchanges and Clearing Corporations are directed to:
+
+   6.1. Make necessary amendments to the relevant bye-laws, rules and
+   regulations for the implementation of the above decision.
+
+   6.2. Bring the provisions of this circular to the notice of the market
+   participants and to disseminate the same on their website.
+
+7. This circular is issued in exercise of powers conferred under Section
+   11(1) of Chapter IV of the Securities and Exchange Board of India Act,
+   1992 read with Regulation 30 of Chapter VII of SEBI (Stock Brokers)
+   Regulations, 1992 to protect the interests of investors in securities
+   and to promote the development of, and to regulate, the securities
+   market.
+
+8. The circular is available on SEBI website at sebi.gov.in under the
+   category "Legal → Circulars".
+
+Yours faithfully,
+
+Sd/-
+Aradhana Verma
+General Manager
+Tel: 022 26449633
+Email: aradhanad@sebi.gov.in
