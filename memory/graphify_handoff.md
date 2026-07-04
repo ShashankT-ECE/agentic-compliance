@@ -1,17 +1,17 @@
 # Graphify Handoff
 
 > **Purpose**: Pipeline graph topology, state, and node/edge information for the Graphify visualization integration.
-> **Updated**: After M7 — full pipeline wired with LangGraph + FastAPI.
+> **Updated**: After M9 — V1 complete with end-to-end demo validation.
 
 ---
 
 ## Graph Status
 
-**Complete.** All 5 pipeline nodes + HITL gate are implemented. LangGraph StateGraph is wired with conditional routing. FastAPI provides 12 REST endpoints for external interaction.
+**V1 COMPLETE.** All 5 pipeline nodes + HITL gate are implemented. LangGraph StateGraph is wired with conditional routing. FastAPI provides 12 REST endpoints. React dashboard renders all pipeline stages. Demo script validates full flow in one command.
 
 ---
 
-## Pipeline Topology (Current State After M7)
+## Pipeline Topology (Final V1 State)
 
 ```
 [Node 1: PDF Parser] ──→ [Node 2: FSM Extractor] ──→ [HITL Gate] ──→ [Node 3: Evaluator] ──→ [Node 4: Scoreboard]
@@ -33,6 +33,9 @@
 | **Nodes** | 5 (4 pipeline + 1 HITL gate) |
 | **Edges** | 4 linear + 1 conditional (HITL decision) |
 | **API** | FastAPI with 12 REST endpoints |
+| **Frontend** | React 19 + TypeScript + Vite + Zustand (50 modules) |
+| **Demo** | `scripts/run_demo.sh` — in-process, MockLLMClient, deterministic |
+| **Tests** | 389 (68+35+34+20+46+69+38+53+26) — 0 failed |
 
 ## Nodes
 
@@ -143,6 +146,12 @@ CREATED → PARSING → PARSED → EXTRACTING_FSM → FSM_EXTRACTED
      │
      ▼
 [REST API response — 12 endpoints]
+     │
+     ▼
+[React Dashboard — trigger, HITL review, telemetry, reports, FSM viewer]
+     │
+     ▼
+[scripts/run_demo.sh — end-to-end demo with MockLLMClient]
 ```
 
 ## Integrity Chain
@@ -168,6 +177,29 @@ SEBI circular → ObligationClause → HybridFSM → LockedFSM
 | 2026-07-03 | M5 complete | Evaluator implemented (deterministic, no LLM) |
 | 2026-07-04 | M6 complete | Scoreboard generator implemented |
 | 2026-07-04 | M7 complete | LangGraph wiring + FastAPI orchestration layer |
+| 2026-07-04 | M8 complete | React dashboard + typed API client + Zustand store |
+| 2026-07-04 | M9 complete | 26 integration tests, demo script, state bridge fix, V1 final validation |
+
+## State Bridge Implementation (M9 Fix)
+
+The `graph.py` state bridge was fixed in M9 to preserve Pydantic sub-model types:
+
+```python
+def _state_to_dict(state: CompliancePipelineState) -> dict[str, Any]:
+    """Return dict with Pydantic sub-models preserved (NOT serialised)."""
+    return {
+        "run_id": state.run_id,
+        "status": state.status,
+        "circular_id": state.circular_id,
+        # ... all fields listed explicitly, preserving types
+        "obligation_clauses": state.obligation_clauses,  # List[ObligationClause]
+        "extracted_fsms": state.extracted_fsms,           # List[HybridFSM]
+        "locked_fsms": state.locked_fsms,                 # List[LockedFSM]
+        # ...
+    }
+```
+
+`model_dump()` was replaced because it serialized sub-models to plain dicts, which broke `extract_fsms()` (expects `ObligationClause.model_dump()`) and `create_locked_fsms()` (expects `HybridFSM.fsm_id`).
 
 ## Test Coverage
 
@@ -181,4 +213,28 @@ SEBI circular → ObligationClause → HybridFSM → LockedFSM
 | test_evaluator.py | 69 | ✅ |
 | test_scoreboard.py | 38 | ✅ |
 | test_orchestration.py | 53 | ✅ |
-| **Total** | **363** | **0 failed** |
+| test_integration.py | 26 | ✅ |
+| **Total** | **389** | **0 failed** |
+
+## Demo Script
+
+```
+scripts/run_demo.sh
+
+Flow:
+  Phase 0 — Dependency checks (Python, fixtures)
+  Phase 1 — Pipeline execution (Python, in-process)
+    Step 1: Trigger pipeline (runner.start)
+    Step 2: HITL queue (load_locked_fsms)
+    Step 3: Auto-approve FSMs
+    Step 4: Resume pipeline (runner.resume)
+    Step 5: Compliance verdicts
+    Step 6: Scoreboard
+    Step 7: Hash chain verification + tamper test
+    Step 8: Report generation
+
+Features:
+  - Uses MultiMockLLMClient (no API key needed)
+  - Deterministic (same hash chain root every run)
+  - Exit codes: 0=success, 1=deps, 2=pipeline, 3=hash-chain
+```

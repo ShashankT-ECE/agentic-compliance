@@ -20,6 +20,12 @@ PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evalu
                                                           ┌─────────────────────────────────────────┘
                                                           ▼
                                               FastAPI + LangGraph Orchestration (M7 ✅)
+                                                          │
+                                                          ▼
+                                              React Dashboard (M8 ✅)
+                                                          │
+                                                          ▼
+                                              End-to-End Demo + Validation (M9 ✅)
 ```
 
 - **Node 1 (PDF Parser)**: LLM-assisted — extracts structured obligation clauses from circular PDFs.
@@ -28,6 +34,7 @@ PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evalu
 - **Node 3 (Assertion Evaluator)**: Strictly deterministic — matches telemetry against approved LockedFSMs. **No LLM allowed.**
 - **Node 4 (Scoreboard Generator)**: Formatting only — aggregates verdicts into the audit scoreboard with hash-chain integrity.
 - **Node 5 (Orchestration)**: LangGraph DAG + FastAPI REST API with 12 endpoints.
+- **Frontend**: React + TypeScript + Vite dashboard with pipeline trigger, HITL review, compliance reports, FSM visualization, and telemetry table.
 
 The pipeline is orchestrated via LangGraph as a directed acyclic graph with a conditional HITL branch.
 
@@ -43,8 +50,9 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 | M5 | Assertion Evaluator (Node 3) | ✅ Complete |
 | M6 | Scoreboard Generator (Node 4) | ✅ Complete |
 | M7 | Backend API + LangGraph Orchestration | ✅ Complete |
-| M8 | Frontend | ⬅ NEXT |
-| M9 | Database + Production Hardening | Pending |
+| M8 | Frontend Dashboard | ✅ Complete |
+| M9 | End-to-End Demo & Final Validation | ✅ Complete |
+| V2 | Production Hardening | ⬅ NEXT |
 
 ## Scope
 
@@ -54,7 +62,9 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 - Evaluate broker telemetry data against FSMs (deterministic only).
 - Generate verifiable audit scoreboards with hash-chain integrity.
 - REST API for pipeline trigger, HITL review, telemetry ingest, and reports.
-- React dashboard for compliance status visualization (M8).
+- React dashboard for compliance status visualization.
+- End-to-end demo script with MockLLMClient (no API key needed).
+- 26 integration tests validating the full pipeline flow.
 
 ## Important Constraints
 
@@ -88,11 +98,12 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.11+, FastAPI, LangGraph |
-| Frontend | TypeScript, React, Vite, Zustand (M8) |
-| Database | PostgreSQL (async via SQLAlchemy — M9) |
+| Frontend | TypeScript, React 19, Vite, Zustand |
+| Database | In-memory stores (V1) → PostgreSQL async via SQLAlchemy (V2) |
 | Integrity | SHA-256 hash-chain (M3) |
-| Deployment | Docker Compose (M9) |
-| AI | DeepSeek API (Nodes 1, 2) |
+| Deployment | Docker Compose (basic) → full-stack (V2) |
+| AI | DeepSeek API (Nodes 1, 2) — swappable via LLMClient abstraction |
+| Testing | pytest (389 tests), 26 integration tests |
 
 ## Coding Standards
 

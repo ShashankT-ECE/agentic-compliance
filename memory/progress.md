@@ -7,7 +7,7 @@
 
 ## Overall Completion
 
-**~60%** — Backend pipeline complete (M0–M7). Frontend (M8) is next.
+**V1 COMPLETE (~100%)** — All M0–M9 milestones merged and verified. 389 tests passing.
 
 ---
 
@@ -39,31 +39,38 @@
 - [x] HITL Gate — (`pipeline/nodes/hitl_gate.py`) — ✅ M4
 - [x] Node 3 — Assertion Evaluator (`pipeline/nodes/evaluator.py`) — ✅ M5
 - [x] Node 4 — Scoreboard Generator (`pipeline/nodes/scoreboard.py`) — ✅ M6
-- [ ] Database connection & migrations — M9
+- [ ] Database connection & migrations — V2
 
 ## Frontend
 
-- [x] Vite + React app scaffold
-- [x] Dependencies installed (184 packages, builds successfully)
-- [x] TypeScript strict mode configured
-- [ ] Dashboard page (`pages/index.tsx`) — M8
-- [ ] Report page (`pages/report.tsx`) — M8
-- [ ] Compliance store — Zustand (`store/useComplianceStore.ts`) — M8
-- [ ] API client (`api/client.ts`) — M8
-- [ ] CircularPanel component — M8
-- [ ] FSMViewer component — M8
-- [ ] AuditReport component — M8
-- [ ] TelemetryTable component — M8
+- [x] Vite + React app scaffold — ✅ M8
+- [x] Dependencies installed (184 packages, builds successfully) — ✅ M8
+- [x] TypeScript strict mode configured — ✅ M8
+- [x] `tsconfig.json` — ✅ M8 Phase 1
+- [x] `index.html` — Vite entry point — ✅ M8 Phase 1
+- [x] `App.tsx` + `App.css` — layout shell, routing, design system — ✅ M8 Phase 1
+- [x] `main.tsx` — React 19 root mount — ✅ M8 Phase 1
+- [x] `api/client.ts` — typed fetch client for all 12 endpoints — ✅ M8 Phase 2
+- [x] `store/useComplianceStore.ts` — Zustand store with loading/error states — ✅ M8 Phase 2
+- [x] Dashboard page (`pages/index.tsx`) — ✅ M8 Phase 4
+- [x] Report page (`pages/report.tsx`) — ✅ M8 Phase 4
+- [x] CircularPanel component — ✅ M8 Phase 3
+- [x] FSMViewer component — ✅ M8 Phase 3
+- [x] AuditReport component — ✅ M8 Phase 3
+- [x] TelemetryTable component — ✅ M8 Phase 3
+- [x] Integration polish (routing, error handling, UX) — ✅ M8 Phase 5
+- [ ] Frontend unit/component tests — V2
 
 ## LangGraph
 
-- [x] LangGraph installed and validated (1.2.7)
+- [x] LangGraph installed and validated (1.2.7) — ✅ M7
 - [x] 5-node pipeline graph compiles and executes — ✅ M7
 - [x] Pipeline DAG definition (`graph.py`) — ✅ M7
 - [x] State schema and routing — ✅ M0/M7
 - [x] Node wiring (Parser → FSM Extractor → HITL → Evaluator → Scoreboard) — ✅ M7
 - [x] Conditional HITL edge (approved → evaluator, pending/rejected → END) — ✅ M7
 - [x] Error handling and retry logic — ✅ M7
+- [x] Pydantic state ↔ dict bridge fix (preserves sub-models) — ✅ M9
 
 ## Nodes
 
@@ -83,10 +90,19 @@
 - [x] `test_evaluator.py` — 69 tests — ✅ M5
 - [x] `test_scoreboard.py` — 38 tests — ✅ M6
 - [x] `test_orchestration.py` — 53 tests — ✅ M7
-- [ ] Integration tests — full pipeline end-to-end
-- [ ] Frontend tests — M8
+- [x] `test_integration.py` — 26 tests — ✅ M9
+- [ ] Frontend tests — V2
+- [ ] CI automation — V2
 
-**Suite total**: 363 tests — 363 passed, 0 failed
+**Suite total**: **389 tests — 389 passed, 0 failed**
+
+## M9 — End-to-End Demo & Final Validation
+
+- [x] Demo fixtures (sample_circular.pdf, sample_telemetry.json) — ✅
+- [x] Demo fixtures in conftest.py (5 fixtures) — ✅
+- [x] Integration tests (26 tests, 8 classes) — ✅
+- [x] Demo script (`scripts/run_demo.sh`) — ✅
+- [x] Final validation (389 tests, frontend build, safety gate, hash chain) — ✅
 
 ## Environment
 
@@ -97,9 +113,10 @@
 - [x] LangGraph validated (1.2.7)
 - [x] DeepSeek integration surface ready (swappable LLM client)
 - [x] Frontend builds with zero errors
-- [x] Docker configs complete
+- [x] Docker configs complete (basic)
 - [ ] DeepSeek API key configured
 - [ ] poppler-utils installed (requires sudo)
+- [ ] Docker Compose full-stack (frontend service) — V2
 
 ## Memory System
 
@@ -114,8 +131,8 @@
 
 ## Documentation
 
-- [ ] Architecture reference (`docs/architecture.pdf`) — **BROKEN: ASCII placeholder**
-- [ ] API reference (`docs/api_reference.md`) — partial
+- [ ] Architecture reference (`docs/architecture.pdf`) — **BROKEN: ASCII placeholder** → V2
+- [ ] API reference (`docs/api_reference.md`) — partial (7/12 endpoints) → V2
 - [x] README — setup and usage
 - [x] Setup scripts — Linux (`scripts/setup_wsl.sh`)
 - [x] Setup scripts — Windows (`scripts/setup_windows.ps1`)
@@ -123,7 +140,26 @@
 ## Demo Readiness
 
 - [x] Pipeline executes end-to-end (headless mode)
-- [ ] Dashboard displays compliance status — M8
-- [ ] Audit report renders findings — M8
-- [ ] FSM visualization works — M8
+- [x] Demo fixtures loaded and validated
+- [x] `scripts/run_demo.sh` completes in one command
+- [x] Dashboard displays compliance status
+- [x] Audit report renders findings
+- [x] FSM visualization works
 - [x] Data integrity (hash chain) verifiable
+- [x] Tamper detection confirmed (4 attack vectors)
+
+---
+
+## V2 — Next Version (not started)
+
+- [ ] PostgreSQL persistence (replace in-memory stores)
+- [ ] Database ORM models + Alembic migrations
+- [ ] Docker Compose full-stack (frontend + nginx + PostgreSQL)
+- [ ] CI/CD pipeline hardening
+- [ ] Frontend test suite (Vitest + React Testing Library)
+- [ ] Authentication (API keys or JWT)
+- [ ] `docs/architecture.md` (replace broken PDF)
+- [ ] API reference completion (12/12 endpoints)
+- [ ] Production hardening (rate limiting, logging, monitoring)
+- [ ] Real SEBI circular integration
+- [ ] Code-quality cleanup (deduplicate MiniCount/MiniStat)
