@@ -8,9 +8,9 @@
 ## Milestone Map
 
 ```
-M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9
-                                              ↑
-                                          (current)
+M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9  [V1 COMPLETE ✅]
+                                                         │
+                                                    V2 (planned)
 ```
 
 ---
@@ -113,40 +113,59 @@ M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9
 
 ---
 
-## M8 — Frontend
+## M8 — Frontend ✅
 
-**Status**: Pending — CURRENT
+**Status**: Complete
 
 **Files**:
-- `frontend/src/main.tsx`
-- `frontend/src/pages/index.tsx` — Dashboard
-- `frontend/src/pages/report.tsx` — Report viewer
-- `frontend/src/store/useComplianceStore.ts` — Zustand state management
-- `frontend/src/api/client.ts` — API client (Axios)
-- `frontend/src/components/CircularPanel.tsx`
-- `frontend/src/components/FSMViewer.tsx`
-- `frontend/src/components/AuditReport.tsx`
-- `frontend/src/components/TelemetryTable.tsx`
+- `frontend/src/main.tsx` — React 19 root mount
+- `frontend/src/App.tsx` — BrowserRouter, header/nav, Routes
+- `frontend/src/App.css` — Full design system (CSS custom properties, cards, buttons, badges, tables, responsive)
+- `frontend/src/pages/index.tsx` — Dashboard page (pipeline trigger, runs list, run detail, HITL queue, telemetry stats)
+- `frontend/src/pages/report.tsx` — Report viewer (lookup form, completed runs, report generation)
+- `frontend/src/store/useComplianceStore.ts` — Zustand state management (data slices, loading/error per action, 12 actions)
+- `frontend/src/api/client.ts` — Typed native-fetch API client (all 12 M7 endpoints, 22 TypeScript interfaces)
+- `frontend/src/components/CircularPanel.tsx` — Pipeline trigger form + run status display
+- `frontend/src/components/FSMViewer.tsx` — SVG state diagram + transition/timeline tables
+- `frontend/src/components/AuditReport.tsx` — Scoreboard, broker cards, verdicts table, hash chain status
+- `frontend/src/components/TelemetryTable.tsx` — Sortable table, filters, pagination, expandable detail, ingest form
 
-**Success Criteria**:
-- [ ] Dashboard displays compliance status
-- [ ] Report page renders audit findings
-- [ ] FSM visualization works
-- [ ] Telemetry table renders ingested events
-- [ ] API client connects to all M7 endpoints
-- [ ] Vite build succeeds with zero errors
-- [ ] All existing backend tests still pass
+**Build**: `tsc` (strict) + `vite build` — zero errors, 50 modules, 3 output files
 
 ---
 
-## M9 — Database + Production Hardening
+## M9 — End-to-End Demo & Final Validation ✅
 
-**Status**: Pending
+**Status**: Complete
 
-- PostgreSQL persistence (replace in-memory stores)
-- Docker Compose integration
-- Authentication
-- Production deployment config
+**Deliverables**:
+- `backend/tests/fixtures/sample_circular.pdf` — Valid 2-page PDF from canonical V1 circular
+- `backend/tests/fixtures/sample_telemetry.json` — 10 events, 3 brokers, 4 event types
+- `backend/tests/conftest.py` — 5 demo fixtures (circular_path, circular_text, circular_ref, telemetry_records, telemetry_events)
+- `backend/tests/test_integration.py` — 26 integration tests, 8 test classes
+- `scripts/run_demo.sh` — Self-contained demo script (bash + inline Python, MockLLMClient, no API key needed)
+- Bug fix: `_state_to_dict()` in `graph.py` (preserved Pydantic sub-models through state bridge)
+- Bug fix: `extract_fsms()` in `fsm_extractor.py` (dict→ObligationClause normalization)
+
+**Validation**: 389 tests passing, frontend build passing, Node 3 safety gate confirmed, hash chain verified with tamper detection
+
+---
+
+## V2 — Production Hardening
+
+**Status**: Planned — NOT started
+
+**Candidate scope** (to be reviewed and approved before implementation):
+- PostgreSQL persistence — async SQLAlchemy ORM models + Alembic migrations
+- Docker Compose full-stack — frontend (nginx) + backend + PostgreSQL
+- CI/CD pipeline — GitHub Actions with test, build, deploy jobs
+- Frontend test suite — Vitest + React Testing Library
+- Authentication — API keys or JWT
+- Real SEBI circular integration
+- `docs/architecture.md` or regenerate `docs/architecture.pdf`
+- API reference completion (12/12 endpoints with full schemas)
+- Production hardening — rate limiting, structured logging, monitoring
+- Code-quality cleanup — extract shared components, deduplicate helpers
 
 ---
 
@@ -157,3 +176,6 @@ M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9
 | 2026-07-01 | Initial roadmap — M0 scaffold |
 | 2026-07-03 | M5 (Evaluator) and M6 (Scoreboard) defined |
 | 2026-07-04 | M6 and M7 completed, M8 defined |
+| 2026-07-04 | M8 complete — frontend dashboard, FSM viewer, audit report, telemetry table |
+| 2026-07-04 | M9 complete — end-to-end demo, 26 integration tests, demo script, final validation |
+| 2026-07-04 | V1 COMPLETE — all M0–M9 merged, 389 tests passing |

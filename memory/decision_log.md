@@ -107,23 +107,43 @@
 
 ### 2026-07-04 — LangGraph + FastAPI as M7 orchestration layer
 
-- **Decision**: Wire the pipeline via LangGraph's `StateGraph` using `CompliancePipelineState` (Pydantic model) as the shared state. Expose operations through FastAPI REST endpoints. Run nodes 1-2-3 sequentially outside the compiled graph's full invoke cycle to support async LLM calls and HITL pause/resume.
+- **Decision**: Wire the pipeline via LangGraph's `StateGraph` using `CompliancePipelineState` (Pydantic model) as the shared state. Expose operations through FastAPI REST endpoints. Run nodes sequentially outside the compiled graph's full invoke cycle to support async LLM calls and HITL pause/resume.
 - **Rationale**: LangGraph provides the DAG structure and conditional routing. FastAPI provides the HTTP API for external triggers and HITL review. The manual sequential execution (rather than full `graph.invoke()`) supports async LLM calls and the pause/resume pattern needed for human review.
 - **Alternatives considered**: Full LangGraph invoke with async node support, Celery task queue, hand-rolled orchestrator.
-- **Impact**: `build_pipeline_graph()` defines the topology; `PipelineRunner` executes nodes sequentially. State is persisted in-memory (V1) → PostgreSQL (M9).
+- **Impact**: `build_pipeline_graph()` defines the topology; `PipelineRunner` executes nodes sequentially. State is persisted in-memory (V1) → PostgreSQL (V2).
 - **Status**: Implemented in M7.
 
 ### 2026-07-04 — Pydantic state ↔ dict bridge for node compatibility
 
-- **Decision**: LangGraph graph uses `CompliancePipelineState` (Pydantic model) as state type. Node wrapper functions in `graph.py` convert to dict via `model_dump()` before calling existing M1-M4 node functions that expect dict state. Updates are applied back via `setattr`.
-- **Rationale**: M1-M4 node functions were written before M7 and expect `dict.get()` access. Converting the state at the graph boundary avoids modifying all existing node functions. This is a pragmatic bridge for V1.
-- **Status**: Implemented in `graph.py` (`_state_to_dict()`, `_apply_updates()`).
+- **Decision**: LangGraph graph uses `CompliancePipelineState` (Pydantic model) as state type. Node wrapper functions in `graph.py` convert to dict manually (preserving Pydantic sub-models — ObligationClause, HybridFSM, LockedFSM) before calling existing M1-M4 node functions that expect dict state.
+- **Rationale**: M1-M4 node functions were written before M7 and expect `dict.get()` access. Converting the state at the graph boundary avoids modifying all existing node functions. The initial implementation used `model_dump()` which serialized sub-models to plain dicts, breaking downstream nodes. Fixed in M9 to build dicts field-by-field.
+- **Status**: Implemented in `graph.py` (`_state_to_dict()` — fixed in M9).
 
-### 2026-07-04 — In-memory stores for V1 (database in M9)
+### 2026-07-04 — In-memory stores for V1 (database in V2)
 
-- **Decision**: Pipeline run state, telemetry events, and reports use in-memory stores (`dict` with module-level accessors) for V1. Replace with PostgreSQL via SQLAlchemy in M9.
+- **Decision**: Pipeline run state, telemetry events, and reports use in-memory stores (`dict` with module-level accessors) for V1. Replace with PostgreSQL via SQLAlchemy in V2.
 - **Rationale**: In-memory stores enable fast iteration during development and testing. The store accessor pattern (`_get_store()` / `_set_store()`) makes the swap to a database mechanical — only the store implementation changes, not the API or business logic.
-- **Status**: Implemented in `runner.py`, `telemetry.py` routes, and `reports.py` routes.
+- **Status**: Implemented. V2 migration planned.
+
+### 2026-07-04 — Frontend stack: React 19 + TypeScript strict + Vite + Zustand + native fetch
+
+- **Decision**: Frontend uses React 19 with TypeScript strict mode, Vite for build, Zustand for state management, and native `fetch` for HTTP (no Axios). CSS is custom properties-based (no Tailwind).
+- **Rationale**: Zustand is lightweight and idiomatic for React 19. Native fetch avoids an extra dependency. CSS custom properties provide theming without a build-time utility framework.
+- **Alternatives considered**: Axios, Redux, Tailwind CSS, Next.js.
+- **Status**: Implemented in M8.
+
+### 2026-07-04 — Demo mode: MockLLMClient with canned responses for reliable demos
+
+- **Decision**: The demo script (`scripts/run_demo.sh`) and integration tests use `MockLLMClient` / `MultiMockLLMClient` with canned JSON responses that match the canonical V1 circular. No real LLM API key is required.
+- **Rationale**: Demos must run reliably without depending on external API availability, network latency, or API key configuration. The canned responses are the same data the real LLM would produce — they exercise the exact same parser and FSM extractor code paths.
+- **Impact**: The demo script is self-contained and deterministic (same hash chain root every run). Developers can validate the full pipeline in under 2 seconds with zero configuration.
+- **Status**: Implemented in M9.
+
+### 2026-07-04 — Integration test strategy: in-process PipelineRunner, no HTTP server
+
+- **Decision**: Integration tests call `PipelineRunner` directly (in-process) rather than going through the FastAPI HTTP layer. Telemetry and report endpoints are tested via `TestClient`.
+- **Rationale**: Pipeline execution is the primary integration concern. Testing via HTTP adds latency and complexity without additional coverage. The HTTP layer is independently tested in `test_orchestration.py` (53 tests).
+- **Status**: Implemented in `test_integration.py` (26 tests, M9).
 
 ---
 
