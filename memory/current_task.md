@@ -4,92 +4,143 @@
 
 ## Developer
 
-Shashank
+Friend (Windows + WSL2)
 
 ## Date
 
-2026-07-03
+2026-07-04
 
 ## Branch
 
 `dev`
 
+## Latest Commit
+
+`d3c0023` — Merge pull request #3 from ShashankT-ECE/m7-orchestration
+
+## Repository State
+
+- `dev` == `origin/dev` — fully synchronized
+- Working tree clean
+- All M0–M7 milestones merged and verified
+- 363 tests passing, 0 failing
+
 ---
 
 ## Current Feature
 
-**M5 — Assertion Evaluator (Node 3)**
-
-Objective: Implement the deterministic compliance evaluator that matches broker telemetry events against approved LockedFSMs to produce `ComplianceVerdict` records.
+**M8 — Frontend**
 
 ---
 
 ## Current File
 
-*No active implementation file. M5 is the next milestone to implement.*
+*Planning only. No implementation file active.*
 
 ---
 
 ## Last Completed Step
 
-M4 (HITL Gate) is complete:
-- `backend/app/models/locked_fsm.py` — `LockStatus`, `AmendmentRecord`, `LockedFSM` (6 Pydantic validators)
-- `backend/app/pipeline/nodes/hitl_gate.py` — `create_locked_fsms`, `approve_fsm`, `reject_fsm`, `amend_fsm`, integrity verification, persistence, `hitl_gate_node`
-- `backend/app/api/routes/pipeline.py` — 6 HITL endpoints (list, get, approve, reject, amend, review history)
-- `backend/app/pipeline/state.py` — `locked_fsms` type changed to `list[LockedFSM]`
-- `backend/tests/test_hitl.py` — 46 tests
+M7 (Backend API + LangGraph Orchestration) is complete, merged into `dev`, and independently verified.
 
-M0-M4 are all complete. 203 tests passing. All memory files synchronized.
+### Architecture Implemented
+
+```
+[Circular PDF]
+     │
+     ▼  M1: parser_node()
+[ObligationClauses]
+     │
+     ▼  M2: fsm_extractor_node()
+[HybridFSMs]
+     │
+     ▼  M4: hitl_gate_node()
+[LockedFSMs] ─── PAUSE (AWAITING_APPROVAL) ──→ API review (approve/reject/amend)
+     │
+     ▼  (on all-resolved)
+[M5: evaluator_node()] ─── deterministic, no LLM
+     │
+     ▼
+[ComplianceVerdicts]
+     │
+     ▼  M6: scoreboard_node()
+[Scoreboard + HashChain]
+     │
+     ▼
+[REST API: 12 endpoints via FastAPI + LangGraph]
+```
+
+### M7 Deliverables
+
+| File | Purpose |
+|------|---------|
+| `backend/app/pipeline/graph.py` | LangGraph StateGraph — 5 nodes + conditional HITL routing |
+| `backend/app/pipeline/runner.py` | PipelineRunner — start, resume, headless modes |
+| `backend/app/api/deps.py` | Dependency injection — LLM client, runner, run store |
+| `backend/app/api/routes/pipeline.py` | 6 pipeline + HITL endpoints |
+| `backend/app/api/routes/telemetry.py` | Telemetry ingest + query endpoints |
+| `backend/app/api/routes/reports.py` | Report generation + retrieval endpoints |
+| `backend/app/main.py` | FastAPI app with CORS, lifespan, router registration |
+| `backend/tests/test_orchestration.py` | 53 tests |
 
 ---
 
 ## Next Immediate Task
 
-Begin implementing M5 — Assertion Evaluator (Node 3). Start with:
+Implement M8 — Frontend dashboard:
 
-1. `backend/app/utils/state_machine.py` — FSM evaluation engine (process events, match transitions, execute state changes)
-2. `backend/app/utils/timeline_evaluator.py` — deadline/offset computation (compute T+0, T+1, T+3 offsets from event timestamps)
-3. `backend/app/pipeline/nodes/evaluator.py` — evaluator node function (deterministic, NO LLM)
-4. `backend/tests/test_evaluator.py` — comprehensive evaluator tests
-5. `backend/tests/fixtures/mock_telemetry.json` — realistic event sequences
+1. Read `memory/project_roadmap.md` for M8 specification.
+2. Implement `frontend/src/api/client.ts` — Axios API client for all 12 M7 endpoints.
+3. Implement `frontend/src/store/useComplianceStore.ts` — Zustand store.
+4. Implement `frontend/src/pages/index.tsx` — Dashboard page.
+5. Implement `frontend/src/pages/report.tsx` — Report viewer page.
+6. Implement components:
+   - `frontend/src/components/CircularPanel.tsx`
+   - `frontend/src/components/FSMViewer.tsx`
+   - `frontend/src/components/AuditReport.tsx`
+   - `frontend/src/components/TelemetryTable.tsx`
+7. Update `frontend/src/main.tsx` — mount app.
+8. Verify `npm run build` succeeds with zero errors.
+9. Verify all 363 backend tests still pass.
 
 ---
 
 ## Files To Open Next
 
-1. `memory/project_roadmap.md` — M5 completion criteria (line 222)
-2. `backend/app/models/verdict.py` — `ComplianceVerdict`, `VerdictStatus` model (output target)
-3. `backend/app/models/locked_fsm.py` — `LockedFSM` model (input: `original_fsm: HybridFSM`)
-4. `backend/app/models/fsm.py` — `HybridFSM`, `FSMTransition`, `TimelineRule` (evaluation logic)
-5. `backend/app/models/telemetry.py` — `TelemetryEvent` (input event stream)
-6. `backend/app/pipeline/nodes/evaluator.py` — scaffold TODO (rewrite from scratch)
-7. `backend/app/utils/state_machine.py` — does not exist yet (create new)
-8. `backend/app/utils/timeline_evaluator.py` — does not exist yet (create new)
+1. `memory/project_roadmap.md` — M8 specification
+2. `frontend/package.json` — verify dependencies
+3. `frontend/vite.config.ts` — verify build config
+4. `frontend/src/` — implement components
+
+---
 
 ## Commands To Run
 
 ```bash
-cd backend && source .venv/bin/activate && python -m pytest tests/ -v
-# Expected: 203 passed (M0-M4)
+cd /home/bradha/agentic-compliance/backend && source .venv/bin/activate
+python -m pytest tests/ -v        # verify 363 tests pass
+
+cd /home/bradha/agentic-compliance/frontend
+npm run build                      # verify build succeeds
 ```
 
 ---
 
 ## Known Issues
 
-- `backend/app/pipeline/nodes/evaluator.py` is a scaffold TODO — needs full implementation.
-- `backend/app/utils/state_machine.py` does not exist — needs creation.
-- `backend/app/utils/timeline_evaluator.py` does not exist — needs creation.
-- `backend/app/utils/telemetry_gen.py` is a scaffold TODO — synthetic telemetry generator needed for tests.
-- `backend/tests/fixtures/mock_telemetry.json` is a placeholder — needs realistic event sequences.
-- No telemetry data has been generated yet.
+- **DEEPSEEK_API_KEY not configured** — needed for Nodes 1/2 at runtime.
+- **docs/architecture.pdf is broken** — ASCII placeholder, not real PDF.
+- **poppler-utils not installed** — requires `sudo apt install poppler-utils`.
+- **sudo requires password** — system-level apt installs need developer intervention.
+- All in-memory stores (run state, telemetry, reports) — replace with PostgreSQL in M9.
+- No authentication (V1 non-goal).
 
 ---
 
 ## Warnings
 
-- Node 3 (Assertion Evaluator) must **never** call an LLM — this is the single most important architectural constraint in the entire project.
-- The evaluator must be a pure function: same FSMs + same events → same verdicts. No randomness, no external API calls.
-- Time computations must use event timestamps, not wall clock time.
-- The evaluator receives `LockedFSM` instances (from M4), not raw `HybridFSM`. Unlock the `original_fsm` field for evaluation.
-- Every verdict must include an evidence trail: which events were matched, timeline status, current state.
+- Node 3 (Assertion Evaluator) must never call an LLM — hard architectural constraint.
+- The 6 Node 3 safety gate tests in `test_evaluator.py` must always pass.
+- `docs/architecture.pdf` is the canonical source of truth (broken).
+- Do not redesign M0–M7 — all milestones are independently verified.
+- Use feature branches and PR workflow for M8.
