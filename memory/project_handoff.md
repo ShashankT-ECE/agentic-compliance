@@ -15,83 +15,84 @@ The system ingests SEBI circular PDFs, extracts obligations as finite state mach
 
 ```
 PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evaluator (Node 3) → Scoreboard (Node 4)
+       ✅ M1                ✅ M2               ✅ M4           ✅ M5 (deterministic)           ✅ M6
+                                                                                                    │
+                                                          ┌─────────────────────────────────────────┘
+                                                          ▼
+                                              FastAPI + LangGraph Orchestration (M7 ✅)
 ```
 
-- **Node 1 (PDF Parser)**: LLM-assisted — extracts structured obligation clauses from circular PDFs using pdfplumber + DeepSeek API. ✅ M1
-- **Node 2 (FSM Extractor)**: LLM-assisted — transforms parsed clauses into hybrid FSM representations (state machine + timeline conditions). ✅ M2
-- **HITL Gate**: Human reviews and approves/corrects extracted FSMs. LockedFSM records sealed into hash chain. **No LLM allowed.** ✅ M4
-- **Node 3 (Assertion Evaluator)**: Strictly deterministic — matches event-based telemetry against locked FSMs. **No LLM allowed.** 🔜 M5
-- **Node 4 (Scoreboard Generator)**: Formatting only — aggregates results into hash-chained audit scoreboard. 🔜 M6
+- **Node 1 (PDF Parser)**: LLM-assisted — extracts structured obligation clauses from circular PDFs.
+- **Node 2 (FSM Extractor)**: LLM-assisted — transforms parsed clauses into HybridFSM representations.
+- **HITL Gate**: Deterministic — human reviews/approves/rejects/amends extracted FSMs before evaluation.
+- **Node 3 (Assertion Evaluator)**: Strictly deterministic — matches telemetry against approved LockedFSMs. **No LLM allowed.**
+- **Node 4 (Scoreboard Generator)**: Formatting only — aggregates verdicts into the audit scoreboard with hash-chain integrity.
+- **Node 5 (Orchestration)**: LangGraph DAG + FastAPI REST API with 12 endpoints.
 
-The pipeline is orchestrated via LangGraph as a directed acyclic graph with a conditional HITL edge (M7).
+The pipeline is orchestrated via LangGraph as a directed acyclic graph with a conditional HITL branch.
 
-## V1 Scope (2026-07-03)
+## Implementation Milestones
 
-| Aspect | Decision |
-|--------|----------|
-| **Canonical circular** | SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57 (28 April 2025) — Margin Collection Timelines |
-| **Target obligation** | Timeline-based (deadline compliance: T+1, T+3, etc.) |
-| **FSM model** | Hybrid — state machine wrapper with embedded timeline conditions |
-| **Telemetry** | Event-based logs conforming to production schema |
-| **HITL gate** | Human reviews extracted FSMs before Node 3 executes |
-| **Hash chain** | Required for V1 demo |
-| **Strategy** | Depth-first: one circular, one broker, full stack end-to-end |
+| Milestone | Component | Status |
+|-----------|-----------|--------|
+| M0 | Foundation (models, state, utils) | ✅ Complete |
+| M1 | PDF Parser (Node 1) | ✅ Complete |
+| M2 | FSM Extractor (Node 2) | ✅ Complete |
+| M3 | Hash Chain Utility | ✅ Complete |
+| M4 | HITL Gate | ✅ Complete |
+| M5 | Assertion Evaluator (Node 3) | ✅ Complete |
+| M6 | Scoreboard Generator (Node 4) | ✅ Complete |
+| M7 | Backend API + LangGraph Orchestration | ✅ Complete |
+| M8 | Frontend | ⬅ NEXT |
+| M9 | Database + Production Hardening | Pending |
+
+## Scope
+
+- Parse SEBI circular PDFs and extract compliance obligations.
+- Model obligations as hybrid finite state machines with timeline rules.
+- Human-in-the-loop review of extracted FSMs (approve/reject/amend).
+- Evaluate broker telemetry data against FSMs (deterministic only).
+- Generate verifiable audit scoreboards with hash-chain integrity.
+- REST API for pipeline trigger, HITL review, telemetry ingest, and reports.
+- React dashboard for compliance status visualization (M8).
 
 ## Important Constraints
 
 | Constraint | Rule |
 |------------|------|
 | Node 3 LLM | **Never** call an LLM. All evaluation is deterministic. |
-| Human approval | Required before Node 3 executes (FSM review gate). |
+| Human approval | Required before Node 3 executes (HITL gate). |
 | Determinism | Execution against operational data must be deterministic. |
 | Auditability | Every compliance finding must be traceable to the originating regulation. |
 | Explainability | All verdicts must be explainable from the FSM + telemetry alone. |
-| Circular source | Obligations are always extracted from real SEBI circulars (never hand-authored). |
-| Telemetry format | Pipeline consumes event logs following the production schema from Day 1. |
-| HITL node LLM | HITL gate (M4) must never call an LLM — all logic is deterministic. |
 
-## Current Implementation Status
+## API Endpoints (M7)
 
-| Milestone | Status | Date | Tests |
-|-----------|--------|------|-------|
-| M0 — Foundation | ✅ Complete | 2026-07-03 | 68 |
-| M1 — PDF Parser | ✅ Complete | 2026-07-03 | 35 |
-| M2 — FSM Extractor | ✅ Complete | 2026-07-03 | 34 |
-| M3 — Hash Chain | ✅ Complete | 2026-07-03 | 20 |
-| M4 — HITL Gate | ✅ Complete | 2026-07-03 | 46 |
-| M5 — Evaluator | 🔜 Next | — | — |
-| M6 — Scoreboard | ⏳ Pending | — | — |
-| M7 — API + Pipeline | ⏳ Pending | — | — |
-| M8 — Frontend | ⏳ Pending | — | — |
-| M9 — E2E Demo | ⏳ Pending | — | — |
-
-**Total: 203 tests, zero failures, zero warnings.**
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | Health check |
+| `POST` | `/api/pipeline/trigger` | Start pipeline run |
+| `GET` | `/api/pipeline/status/{run_id}` | Check run status |
+| `GET` | `/api/pipeline/result/{run_id}` | Get compliance results |
+| `GET` | `/api/pipeline/hitl` | List HITL review items |
+| `POST` | `/api/pipeline/hitl/{fsm_id}/approve` | Approve FSM |
+| `POST` | `/api/pipeline/hitl/{fsm_id}/reject` | Reject FSM |
+| `POST` | `/api/pipeline/hitl/{fsm_id}/amend` | Amend FSM |
+| `POST` | `/api/telemetry/ingest` | Ingest broker events |
+| `GET` | `/api/telemetry/query` | Query telemetry |
+| `GET` | `/api/reports/generate/{run_id}` | Generate audit report |
+| `GET` | `/api/reports/{report_id}` | Retrieve report |
 
 ## Technology Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python 3.10+, FastAPI, LangGraph |
-| Frontend | TypeScript, React, Vite, Zustand |
-| Database | PostgreSQL (async via SQLAlchemy) |
-| Integrity | SHA-256 hash-chain locking for FSM snapshots and audit trails (M3) |
-| PDF extraction | pdfplumber (M1) |
-| LLM | DeepSeek API via swappable LLMClient abstraction (M1) |
-| Testing | pytest, pytest-asyncio, httpx (FastAPI TestClient) |
-| Deployment | Docker Compose, GitHub Actions |
-
-## Key Directories
-
-| Directory | Contents |
-|-----------|----------|
-| `backend/app/models/` | `obligation.py`, `telemetry.py`, `fsm.py`, `verdict.py`, `scoreboard.py`, `locked_fsm.py` |
-| `backend/app/pipeline/` | `state.py`, `nodes/parser.py`, `nodes/fsm_extractor.py`, `nodes/hitl_gate.py` |
-| `backend/app/utils/` | `hash_chain.py`, `llm_client.py`, `pdf_ingest.py` |
-| `backend/app/prompts/` | `parser_prompt.md`, `fsm_extractor_prompt.md` |
-| `backend/app/api/routes/` | `pipeline.py` (HITL endpoints) |
-| `backend/data/extracted/` | M2 FSM output (per-circular JSON + index) |
-| `backend/data/locked_fsms/` | M4 LockedFSM records (per-run JSON + pipeline state + review log + hash chain) |
-| `backend/tests/` | 5 test files + fixtures |
+| Backend | Python 3.11+, FastAPI, LangGraph |
+| Frontend | TypeScript, React, Vite, Zustand (M8) |
+| Database | PostgreSQL (async via SQLAlchemy — M9) |
+| Integrity | SHA-256 hash-chain (M3) |
+| Deployment | Docker Compose (M9) |
+| AI | DeepSeek API (Nodes 1, 2) |
 
 ## Coding Standards
 
@@ -108,15 +109,3 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 - **Friend** (Windows + WSL2)
 
 Both use Claude Code with the DeepSeek API. Work is asynchronous — no scheduled sessions.
-
-## Key Reference Files
-
-| File | Purpose |
-|------|---------|
-| `memory/project_roadmap.md` | Permanent implementation plan with milestones and completion criteria |
-| `memory/decision_log.md` | Architectural decision records |
-| `memory/graphify_handoff.md` | Pipeline graph topology and state schema |
-| `memory/current_task.md` | Exact resume point for the current session |
-| `memory/session_handoff.md` | Last session summary |
-| `memory/progress.md` | High-level checkbox tracker |
-| `CLAUDE.md` | Permanent operating manual |

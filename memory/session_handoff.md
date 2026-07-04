@@ -9,8 +9,9 @@
 | **Date** | 2026-07-04 |
 | **Developer** | Brad (Friend — Windows + WSL2) |
 | **Branch** | `dev` |
-| **Environment** | Linux (WSL2) |
-| **Repository State** | M0–M6 complete, M7 next |
+| **Latest Commit** | `d3c0023` — Merge PR #3 (m7-orchestration) |
+| **Repository State** | `dev` == `origin/dev`, working tree clean |
+| **Overall Status** | M0–M7 complete and verified. M8 (Frontend) is next. |
 
 ## Completed Milestones
 
@@ -19,108 +20,135 @@
 - 68 tests
 
 ### M1 — PDF Parser (Node 1) ✅
-- `pdf_ingest.py`: pdfplumber PDF extraction with error handling
-- `llm_client.py`: swappable LLM abstraction (DeepSeek + Mock)
-- `parser.py`: LLM-assisted obligation extraction with 3-pass JSON parser
+- `pdf_ingest.py`: pdfplumber PDF extraction
+- `llm_client.py`: DeepSeek + Mock LLM clients
+- `parser.py`: 3-pass JSON parser with `parser_prompt.md`
 - 35 tests
 
 ### M2 — FSM Extractor (Node 2) ✅
-- `fsm_extractor.py`: LLM-assisted HybridFSM generation with canonical state validation
-- FSM persistence to `data/extracted/{circular}/` with `_index.json` manifest
+- `fsm_extractor.py`: LLM-assisted HybridFSM generation
+- Canonical state validation, FSM persistence
 - 34 tests
 
 ### M3 — Hash Chain Utility ✅
-- `hash_chain.py`: `compute_hash`, `link`, `verify_chain`, `build_chain`
+- `hash_chain.py`: SHA-256 linked-list, tamper detection
 - 20 tests
 
 ### M4 — HITL Gate ✅
-- `locked_fsm.py`: `LockedFSM` model with 6 Pydantic validators
-- `hitl_gate.py`: approval/rejection/amendment workflow
+- `hitl_gate.py`: approve/reject/amend workflow
+- `locked_fsm.py`: LockedFSM model with integrity hashes
+- 6 API endpoints for review
 - 46 tests
 
 ### M5 — Assertion Evaluator (Node 3) ✅
-- `state_machine.py`: deterministic FSM executor
-- `timeline_evaluator.py`: deadline parsing, computation, timeline rule evaluation
-- `telemetry_gen.py`: synthetic telemetry sequence generators
-- `evaluator.py`: LockedFSMs + TelemetryEvents → ComplianceVerdicts with evidence trails
+- `state_machine.py`, `timeline_evaluator.py`, `telemetry_gen.py`
+- `evaluator.py`: deterministic compliance evaluation
+- Zero LLM, zero randomness — verified by safety gate tests
 - 69 tests
 
-### M6 — Scoreboard Generator (Node 4) ✅ ← NEW
-- `scoreboard.py`: aggregate ComplianceVerdicts by broker → Scoreboard with hash chain
-- `test_scoreboard.py`: 38 tests covering aggregation, counts, evidence summaries, hash chain, edge cases, determinism
-- Uses existing `HashChain` from M3 and model validators from M0
+### M6 — Scoreboard Generator (Node 4) ✅
+- `scoreboard.py`: per-broker aggregation with compliance rates
+- Hash-chain integrity seal
+- 38 tests
+
+### M7 — Backend API + LangGraph Orchestration ✅
+- `graph.py`: 5-node LangGraph DAG with conditional HITL routing
+- `runner.py`: PipelineRunner (start/resume/headless)
+- `main.py`: FastAPI app with 12 endpoints
+- `deps.py`: Dependency injection
+- Pipeline routes: trigger, status, result, HITL review
+- Telemetry routes: ingest, query with filters/pagination
+- Reports routes: generate, retrieve
+- 53 tests
 
 ## Total Test Count
 
 ```
-310 passed, 1 warning in 1.12s
-68 M0 + 35 M1 + 34 M2 + 20 M3 + 46 M4 + 69 M5 + 38 M6
+363 passed, 0 failed, 1 warning
+M0(68) + M1(35) + M2(34) + M3(20) + M4(46) + M5(69) + M6(38) + M7(53) = 363
 ```
 
-All tests pass with zero failures across all milestones.
+## Architecture Summary (Current State)
 
-## M6 Design Summary
+```
+[Circular PDF]
+     ↓  M1: parse_circular() — LLM-assisted
+[ObligationClauses]
+     ↓  M2: extract_fsms() — LLM-assisted
+[HybridFSMs]
+     ↓  M4: hitl_gate_node() — deterministic, no LLM
+[LockedFSMs] → PAUSE (AWAITING_APPROVAL)
+     │              │
+     │   ┌──────────┴──────────┐
+     │   ▼                     ▼
+     │ [API: approve]    [API: reject/amend]
+     │   │                     │
+     │   ▼                     ▼
+     │ [APPROVED]        [REJECTED → re-extract]
+     │   │
+     ↓   ▼  (on all-resolved)
+[M5: evaluate_compliance()] — deterministic, no LLM
+     ↓
+[ComplianceVerdicts]
+     ↓  M6: generate_scoreboard()
+[Scoreboard + HashChain]
+     ↓
+[M7: FastAPI REST API — 12 endpoints]
+```
 
-**Field mappings (ComplianceVerdict → ObligationResult):**
-- `obligation_ref`, `fsm_ref`, `status`, `current_state`, `evaluated_at` → direct passthrough
-- `evidence` dict → `evidence_summary` string: "N/M events matched, K transitions, timeline: [...]"
+## Key Implementation Notes
 
-**Aggregation logic:**
-- Group verdicts by `broker_id`, sorted alphabetically (deterministic ordering)
-- `compliance_rate = compliant / (total - pending)`, or `1.0` if all pending
-- One `BrokerScore` per broker, one `ObligationResult` per verdict
-- Hash chain built from serialized broker summaries via M3 `build_chain()`
+- **LangGraph graph** uses `CompliancePipelineState` (Pydantic model) as state type
+- **State bridge**: M1-M4 node functions expect dicts — `_state_to_dict()` converts Pydantic → dict
+- **HITL conditional routing**: `_after_hitl()` returns `END` when no FSMs/pending/rejected, `EVALUATOR` when all approved
+- **In-memory stores**: Run state, telemetry, and reports use in-memory stores (replace with PostgreSQL in M9)
+- **LLM client**: DeepSeekClient uses OpenAI-compatible API — swappable via `set_llm_client()`
+- **All 363 tests pass** with zero failures
 
-**Key design decisions:**
-- Scoring logic lives entirely in `scoreboard.py` — not in models
-- Model validators (BrokerScore) catch inconsistency as a safety net
-- Evidence summary is a human-readable string, not structured data
-- Zero LLM dependency, fully deterministic
+## Blockers
 
-## Files added/modified (M6)
-
-| File | Lines | Action |
-|------|-------|--------|
-| `backend/app/pipeline/nodes/scoreboard.py` | 197 | **Implemented** |
-| `backend/tests/test_scoreboard.py` | 302 | **Created** |
-| `memory/session_handoff.md` | — | **Updated** |
-
-## Important Implementation Notes
-
-- `generate_scoreboard()` signature: `(verdicts: list[ComplianceVerdict], circular_id: str, metadata: dict | None = None) -> Scoreboard`
-- Empty verdicts → empty Scoreboard with `hash_chain=None`
-- Broker sort order is deterministic (alphabetical by `broker_id`)
-- Hash chain root hash is identical across runs for the same input
-- Scoreboard model validators enforce count consistency at construction time
-
-## Known limitations
-
-- No LangGraph wiring yet (M7)
-- No FastAPI main app entry point (M7)
-- No frontend (M8)
-- No authentication (V1 non-goal)
-- DeepSeek API key not yet configured
+1. **DEEPSEEK_API_KEY not configured** — Nodes 1/2 fail at runtime without it
+2. **sudo password required** — for `apt install poppler-utils`
+3. **docs/architecture.pdf broken** — ASCII placeholder
 
 ## Next Milestone
 
-**M7 — LangGraph Pipeline Wiring + API Routes**
+**M8 — React Frontend Dashboard**
+
+Planned files:
+- `frontend/src/main.tsx` — App mount
+- `frontend/src/pages/index.tsx` — Dashboard
+- `frontend/src/pages/report.tsx` — Report viewer
+- `frontend/src/store/useComplianceStore.ts` — Zustand state
+- `frontend/src/api/client.ts` — Axios API client
+- `frontend/src/components/CircularPanel.tsx`
+- `frontend/src/components/FSMViewer.tsx`
+- `frontend/src/components/AuditReport.tsx`
+- `frontend/src/components/TelemetryTable.tsx`
 
 ## Exact Startup Instructions
 
 ```bash
-cd /path/to/agentic-compliance
+cd /home/bradha/agentic-compliance
 git checkout dev
 git pull origin dev
 cd backend
 source .venv/bin/activate
-pip install -r requirements.txt
-python -m pytest tests/ -v        # verify 310 tests pass
+python -m pytest tests/ -v        # verify 363 tests pass
+cd ../frontend
+npm install                        # if new deps
+npm run build                      # verify build succeeds
 ```
 
-Then read:
+Then read memory files in this order:
 1. `memory/project_handoff.md` — project overview
-2. `memory/project_roadmap.md` — M7 completion criteria
-3. `memory/current_task.md` — exact resume point
-4. This file — session history and implementation notes
+2. `memory/progress.md` — 30-second status
+3. `memory/current_task.md` — exact M8 resume point
+4. `memory/project_roadmap.md` — M8 criteria
+5. This file — session history
 
-**NOTE: M6 changes have NOT been committed or pushed.**
+**CRITICAL RULES FOR M8:**
+- Do not redesign M0–M7
+- Use feature branch + PR workflow (`git checkout -b m8-frontend`)
+- All 363 backend tests must still pass after M8
+- Stop after M8 — do not begin M9
