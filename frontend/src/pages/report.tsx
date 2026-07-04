@@ -17,8 +17,6 @@ import { useState, type FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useComplianceStore from '../store/useComplianceStore';
 import AuditReport from '../components/AuditReport';
-import FSMViewer from '../components/FSMViewer';
-import type { HybridFSM } from '../api/client';
 
 export default function ReportPage() {
   const { reportId } = useParams<{ reportId?: string }>();
@@ -27,8 +25,6 @@ export default function ReportPage() {
   // ------------------------------------------------------------------
   // Store
   // ------------------------------------------------------------------
-  const currentResult = useComplianceStore((s) => s.currentResult);
-  const currentReport = useComplianceStore((s) => s.currentReport);
   const runs = useComplianceStore((s) => s.runs);
 
   // ------------------------------------------------------------------
@@ -38,14 +34,6 @@ export default function ReportPage() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
         <AuditReport reportId={reportId} />
-
-        {/* If we also have verdicts with FSM refs, allow drilling into them */}
-        {currentResult?.verdicts && currentResult.verdicts.length > 0 && (
-          <VerdictsSection
-            verdicts={currentResult.verdicts}
-            report={currentReport}
-          />
-        )}
       </div>
     );
   }
@@ -241,175 +229,3 @@ function CompletedRunsSection({
   );
 }
 
-// ============================================================================
-// Verdicts drill-down (shown below AuditReport when report is loaded)
-// ============================================================================
-
-function VerdictsSection({
-  verdicts,
-  report,
-}: {
-  verdicts: NonNullable<ReturnType<typeof useComplianceStore.getState>['currentResult']>['verdicts'];
-  report: ReturnType<typeof useComplianceStore.getState>['currentReport'];
-}) {
-  const [selectedFsm, setSelectedFsm] = useState<HybridFSM | null>(null);
-
-  // Try to resolve FSM detail from the scoreboard when a verdict row is clicked
-  function handleViewFsm(fsmRef: string) {
-    const scoreboard = report?.scoreboard;
-    if (!scoreboard) return;
-
-    // Search broker summaries for an obligation_result matching the FSM ref
-    for (const broker of scoreboard.broker_summaries) {
-      const detail = broker.obligation_details.find((d) => d.fsm_ref === fsmRef);
-      if (detail) {
-        // We don't have the full HybridFSM in the report, but we can construct
-        // a minimal representation from the broker score for display.
-        // For now, close the panel — full FSM drill-down requires the
-        // pipeline state to still be in memory.
-        setSelectedFsm(null);
-        return;
-      }
-    }
-    setSelectedFsm(null);
-  }
-
-  // Build a unique set of broker + obligation combinations with evidence summaries
-  const uniqueVerdicts = verdicts.filter(
-    (v, i, arr) =>
-      arr.findIndex(
-        (x) => x.broker_id === v.broker_id && x.obligation_ref === v.obligation_ref,
-      ) === i,
-  );
-
-  return (
-    <>
-      <section className="card">
-        <div className="card__header">
-          <h2 className="card__title">Compliance Verdicts</h2>
-          <span className="badge badge--neutral">{verdicts.length} verdicts</span>
-        </div>
-
-        <div className="card__body">
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Verdict ID</th>
-                  <th>Broker</th>
-                  <th>Obligation</th>
-                  <th>FSM</th>
-                  <th>Status</th>
-                  <th>State</th>
-                  <th>Evaluated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {uniqueVerdicts.map((v) => {
-                  const statusClass =
-                    v.status === 'compliant'
-                      ? 'badge--compliant'
-                      : v.status === 'non_compliant'
-                        ? 'badge--non-compliant'
-                        : 'badge--pending';
-                  return (
-                    <tr key={v.verdict_id}>
-                      <td>
-                        <code style={{ fontSize: 'var(--text-xs)' }}>{v.verdict_id}</code>
-                      </td>
-                      <td style={{ fontWeight: 500 }}>{v.broker_id}</td>
-                      <td>{v.obligation_ref}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn btn--secondary btn--sm"
-                          onClick={() => handleViewFsm(v.fsm_ref)}
-                          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}
-                        >
-                          {v.fsm_ref}
-                        </button>
-                      </td>
-                      <td>
-                        <span className={`badge ${statusClass}`}>{v.status}</span>
-                      </td>
-                      <td>{v.current_state}</td>
-                      <td style={{ fontSize: 'var(--text-xs)', whiteSpace: 'nowrap' }}>
-                        {new Date(v.evaluated_at).toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Evidence summary per verdict */}
-          {uniqueVerdicts.length > 0 && (
-            <details style={{ marginTop: 'var(--space-4)' }}>
-              <summary
-                style={{
-                  cursor: 'pointer',
-                  fontSize: 'var(--text-sm)',
-                  fontWeight: 500,
-                  color: 'var(--color-primary-700)',
-                }}
-              >
-                + Evidence Summaries
-              </summary>
-              <div
-                style={{
-                  marginTop: 'var(--space-3)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 'var(--space-3)',
-                }}
-              >
-                {uniqueVerdicts.map((v) => (
-                  <div
-                    key={v.verdict_id}
-                    style={{
-                      padding: 'var(--space-3)',
-                      background: 'var(--color-neutral-100)',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--color-neutral-200)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 'var(--text-xs)',
-                        fontWeight: 600,
-                        color: 'var(--color-neutral-500)',
-                        marginBottom: 'var(--space-2)',
-                      }}
-                    >
-                      {v.verdict_id} — {v.broker_id} / {v.obligation_ref}
-                    </div>
-                    <pre
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--text-xs)',
-                        lineHeight: 1.5,
-                        margin: 0,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        maxHeight: '16rem',
-                        overflowY: 'auto',
-                      }}
-                    >
-                      {JSON.stringify(v.evidence, null, 2)}
-                    </pre>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-        </div>
-      </section>
-
-      {/* FSM drill-down panel */}
-      {selectedFsm && (
-        <FSMViewer fsm={selectedFsm} />
-      )}
-    </>
-  );
-}

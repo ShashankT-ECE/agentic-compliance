@@ -36,7 +36,7 @@ export interface TelemetryTableProps {
 // Sort / filter types
 // ============================================================================
 
-type SortField = 'event_type' | 'broker_id' | 'timestamp';
+type SortField = 'event_id' | 'event_type' | 'broker_id' | 'timestamp';
 type SortDir = 'asc' | 'desc';
 
 // ============================================================================
@@ -47,6 +47,7 @@ export default function TelemetryTable({
   events: eventsProp,
   showIngestForm = true,
   onIngested,
+  onEventClick,
 }: TelemetryTableProps) {
   // ------------------------------------------------------------------
   // Store
@@ -265,7 +266,7 @@ export default function TelemetryTable({
               <tr>
                 <SortHeader
                   label="Event ID"
-                  field="event_type"
+                  field="event_id"
                   current={sortField}
                   dir={sortDir}
                   onClick={toggleSort}
@@ -303,9 +304,10 @@ export default function TelemetryTable({
                   <tr
                     key={ev.event_id}
                     style={{ cursor: 'pointer' }}
-                    onClick={() =>
-                      setExpandedId(isExpanded ? null : ev.event_id)
-                    }
+                    onClick={() => {
+                      setExpandedId(isExpanded ? null : ev.event_id);
+                      onEventClick?.(ev);
+                    }}
                   >
                     <td>
                       <code style={{ fontSize: 'var(--text-xs)' }}>{ev.event_id}</code>

@@ -145,6 +145,13 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
             role="img"
             aria-label={`State diagram for ${resolved.obligation_ref}`}
           >
+            {/* Single shared defs — avoids duplicate marker IDs */}
+            <defs>
+              <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                <polygon points="0 0, 8 3, 0 6" fill="var(--color-neutral-500)" />
+              </marker>
+            </defs>
+
             {/* Transition arrows */}
             {transitionPairs.map((t, i) => {
               const src = positions.get(t.from);
@@ -315,11 +322,6 @@ function Arrow({
 
   return (
     <g>
-      <defs>
-        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="var(--color-neutral-500)" />
-        </marker>
-      </defs>
       <path d={d} fill="none" stroke="var(--color-neutral-400)" strokeWidth={1.5} markerEnd="url(#arrowhead)" />
       <text
         x={ctrlX}

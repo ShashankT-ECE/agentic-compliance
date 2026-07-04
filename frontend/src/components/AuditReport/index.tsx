@@ -38,8 +38,6 @@ export interface AuditReportProps {
   runIdForGenerate?: string;
   /** Callback when a report is successfully generated. */
   onGenerated?: (reportId: string) => void;
-  /** Callback when the user requests to view an FSM. */
-  onViewFsm?: (fsmRef: string) => void;
 }
 
 // ============================================================================
