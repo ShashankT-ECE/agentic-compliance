@@ -1,0 +1,120 @@
+{
+  "description": "Demo telemetry fixture — covers compliant, late, and missing-event scenarios across 3 brokers for the SEBI margin-collection circular (SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57). Obligations tested: margin collection by settlement day (T+1) and advance-of-trade VaR/ELM collection (T+0).",
+  "circular_ref": "SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57",
+  "generated_for": "M9 end-to-end demo and integration tests",
+  "records": [
+    {
+      "broker_id": "BROKER-COMPLIANT",
+      "event_type": "trade_executed",
+      "timestamp": "2025-05-12T09:30:00Z",
+      "payload": {
+        "trade_id": "T-2025-05001",
+        "symbol": "RELIANCE",
+        "quantity": 100,
+        "price": 2850.00,
+        "exchange": "NSE",
+        "segment": "cash"
+      }
+    },
+    {
+      "broker_id": "BROKER-COMPLIANT",
+      "event_type": "margin_call_made",
+      "timestamp": "2025-05-12T09:35:00Z",
+      "payload": {
+        "margin_type": "other",
+        "amount": 28500.00,
+        "call_ref": "MC-2025-05001"
+      }
+    },
+    {
+      "broker_id": "BROKER-COMPLIANT",
+      "event_type": "margin_report_filed",
+      "timestamp": "2025-05-13T15:30:00Z",
+      "payload": {
+        "report_id": "MR-2025-05001",
+        "exchange": "NSE",
+        "margin_collected": 28500.00,
+        "collected_by": "settlement_day"
+      }
+    },
+    {
+      "broker_id": "BROKER-COMPLIANT",
+      "event_type": "payin_made",
+      "timestamp": "2025-05-13T16:00:00Z",
+      "payload": {
+        "payin_ref": "PI-2025-05001",
+        "funds": 285000.00,
+        "securities": true
+      }
+    },
+    {
+      "broker_id": "BROKER-LATE",
+      "event_type": "trade_executed",
+      "timestamp": "2025-05-12T10:00:00Z",
+      "payload": {
+        "trade_id": "T-2025-05002",
+        "symbol": "TCS",
+        "quantity": 50,
+        "price": 3950.00,
+        "exchange": "NSE",
+        "segment": "cash"
+      }
+    },
+    {
+      "broker_id": "BROKER-LATE",
+      "event_type": "margin_call_made",
+      "timestamp": "2025-05-12T10:05:00Z",
+      "payload": {
+        "margin_type": "other",
+        "amount": 19750.00,
+        "call_ref": "MC-2025-05002"
+      }
+    },
+    {
+      "broker_id": "BROKER-LATE",
+      "event_type": "margin_report_filed",
+      "timestamp": "2025-05-16T11:00:00Z",
+      "payload": {
+        "report_id": "MR-2025-05002",
+        "exchange": "NSE",
+        "margin_collected": 19750.00,
+        "collected_by": "late",
+        "days_late": 3
+      }
+    },
+    {
+      "broker_id": "BROKER-LATE",
+      "event_type": "payin_made",
+      "timestamp": "2025-05-16T12:00:00Z",
+      "payload": {
+        "payin_ref": "PI-2025-05002",
+        "funds": 197500.00,
+        "securities": true,
+        "late": true
+      }
+    },
+    {
+      "broker_id": "BROKER-MISSING",
+      "event_type": "trade_executed",
+      "timestamp": "2025-05-13T09:00:00Z",
+      "payload": {
+        "trade_id": "T-2025-05003",
+        "symbol": "INFY",
+        "quantity": 200,
+        "price": 1620.00,
+        "exchange": "BSE",
+        "segment": "cash"
+      }
+    },
+    {
+      "broker_id": "BROKER-MISSING",
+      "event_type": "margin_call_made",
+      "timestamp": "2025-05-13T09:05:00Z",
+      "payload": {
+        "margin_type": "other",
+        "amount": 32400.00,
+        "call_ref": "MC-2025-05003"
+      }
+    }
+  ]
+}
