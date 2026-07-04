@@ -219,12 +219,21 @@ async def extract_fsms(
         len(clauses),
     )
 
+    # Normalise clauses: the graph bridge serialises ObligationClause →
+    # dict via model_dump(); materialise back to Pydantic when needed.
+    _norm: list[ObligationClause] = []
+    for c in clauses:
+        if isinstance(c, ObligationClause):
+            _norm.append(c)
+        else:
+            _norm.append(ObligationClause.model_validate(c))
+
     # 1. Load the FSM prompt template
     system_prompt = load_fsm_prompt_template(prompt_path)
 
     # 2. Build the user message with all clauses as JSON
     clauses_json = json.dumps(
-        [c.model_dump(mode="json") for c in clauses],
+        [c.model_dump(mode="json") for c in _norm],
         indent=2,
         default=str,
     )

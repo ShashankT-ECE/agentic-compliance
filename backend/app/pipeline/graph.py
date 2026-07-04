@@ -35,12 +35,33 @@ SCOREBOARD = "scoreboard"
 # =========================================================================
 
 def _state_to_dict(state: CompliancePipelineState) -> dict[str, Any]:
-    """Convert a CompliancePipelineState Pydantic model to a plain dict.
+    """Return a dict view of *state* with Pydantic sub-models preserved.
 
-    The existing M1-M6 node functions expect dict state with .get() access.
-    This bridge enables them to work with LangGraph's BaseModel state.
+    The existing M1-M6 node functions expect ``dict.get()`` access but
+    need the actual Pydantic model instances (ObligationClause, HybridFSM,
+    LockedFSM) — not serialised dicts.  We construct the dict manually
+    rather than calling ``model_dump()`` to avoid losing type information.
     """
-    return state.model_dump()
+    return {
+        "run_id": state.run_id,
+        "status": state.status,
+        "circular_id": state.circular_id,
+        "circular_path": state.circular_path,
+        "telemetry_events": state.telemetry_events,
+        "raw_text": state.raw_text,
+        "obligation_clauses": state.obligation_clauses,
+        "extracted_fsms": state.extracted_fsms,
+        "locked_fsms": state.locked_fsms,
+        "approved_by": state.approved_by,
+        "approved_at": state.approved_at,
+        "hitl_notes": state.hitl_notes,
+        "compliance_verdicts": state.compliance_verdicts,
+        "scoreboard": state.scoreboard,
+        "hash_chain_root": state.hash_chain_root,
+        "errors": state.errors,
+        "node_timings": state.node_timings,
+        "metadata": state.metadata,
+    }
 
 
 def _dict_to_state(state: CompliancePipelineState, updates: dict[str, Any]) -> dict[str, Any]:
