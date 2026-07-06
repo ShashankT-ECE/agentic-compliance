@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import DashboardPage from './pages/index';
 import ReportPage from './pages/report';
+import HitlReviewPage from './pages/hitl';
 import './App.css';
 
 export default function App() {
@@ -56,6 +57,7 @@ export default function App() {
         <main className="app-main">
           <Routes>
             <Route path="/" element={<DashboardPage />} />
+            <Route path="/hitl/:runId" element={<HitlReviewPage />} />
             <Route path="/report/:reportId?" element={<ReportPage />} />
           </Routes>
         </main>

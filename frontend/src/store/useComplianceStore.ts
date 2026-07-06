@@ -21,6 +21,7 @@ import type {
   TelemetryInput,
   TelemetryQueryParams,
   IngestResponse,
+  ResumeResponse,
   ReportDetail,
   ReviewAction,
   AmendAction,
@@ -33,6 +34,7 @@ import {
   approveFsm,
   rejectFsm,
   amendFsm,
+  resumePipeline,
   ingestTelemetry,
   queryTelemetry,
   generateReport,
@@ -51,6 +53,7 @@ const LOADING_KEYS = [
   'approveFsm',
   'rejectFsm',
   'amendFsm',
+  'resumePipeline',
   'ingestTelemetry',
   'queryTelemetry',
   'generateReport',
@@ -150,6 +153,9 @@ export interface ComplianceState {
     comments: string,
     correctedFsm: Record<string, unknown>,
   ) => Promise<boolean>;
+
+  /** Resume a paused pipeline after all FSMs are reviewed. */
+  resumePipeline: (runId: string) => Promise<ResumeResponse | null>;
 
   /** Ingest broker telemetry events. Returns the ingest summary. */
   ingestTelemetry: (
@@ -394,6 +400,25 @@ const useComplianceStore = create<ComplianceState>()((set) => {
     }
   }
 
+  async function _resumePipeline(
+    runId: string,
+  ): Promise<ResumeResponse | null> {
+    start('resumePipeline');
+    try {
+      const res = await resumePipeline(runId);
+      // Refresh the run status so the dashboard sees the completed state
+      await _fetchStatus(runId);
+      finish('resumePipeline');
+      return res;
+    } catch (err) {
+      finish(
+        'resumePipeline',
+        err instanceof Error ? err.message : String(err),
+      );
+      return null;
+    }
+  }
+
   async function _ingestTelemetry(
     events: TelemetryInput[],
     brokerId?: string,
@@ -474,6 +499,7 @@ const useComplianceStore = create<ComplianceState>()((set) => {
     approveFsm: _approveFsm,
     rejectFsm: _rejectFsm,
     amendFsm: _amendFsm,
+    resumePipeline: _resumePipeline,
     ingestTelemetry: _ingestTelemetry,
     queryTelemetry: _queryTelemetry,
     generateReport: _generateReport,

@@ -201,7 +201,7 @@ def _load_locked_fsms_from_disk(run_id: str) -> list[LockedFSM]:
     """Load LockedFSM records persisted to disk for a pipeline run.
 
     The HITL gate writes LockedFSMs to the module-level ``_LOCKED_DATA_DIR``
-    (``backend/app/data/locked_fsms/{run_id}/``).  We load from the same
+    (``backend/data/locked_fsms/{run_id}/``).  We load from the same
     directory — no test-specific override.
     """
     from app.pipeline.nodes.hitl_gate import load_locked_fsms, _LOCKED_DATA_DIR
@@ -1068,3 +1068,268 @@ class TestDataIntegrity:
 
 # Re‑export PipelineRunner so tests don't need to import it separately
 from app.pipeline.runner import PipelineRunner
+
+
+# =============================================================================
+# Helper — minimal valid HybridFSM for _count_fsms tests
+# =============================================================================
+
+
+def _make_minimal_fsm() -> HybridFSM:
+    """Build a minimal but valid HybridFSM with all 5 canonical states."""
+    from app.models.fsm import FSMState, FSMTransition, TimelineRule
+
+    return HybridFSM(
+        fsm_id="FSM-TEST",
+        obligation_ref="CIRC-001",
+        circular_ref="SEBI-TEST",
+        states=[
+            FSMState(name="PENDING", description="Start"),
+            FSMState(name="DUE", description="Due"),
+            FSMState(name="COMPLIANT", description="Done"),
+            FSMState(name="LATE", description="Late"),
+            FSMState(name="NON_COMPLIANT", description="Failed"),
+        ],
+        initial_state="PENDING",
+        transitions=[
+            FSMTransition(from_state="PENDING", to_state="DUE", trigger_event="start", conditions=None),
+            FSMTransition(from_state="DUE", to_state="COMPLIANT", trigger_event="submit", conditions=None),
+            FSMTransition(from_state="DUE", to_state="LATE", trigger_event="deadline", conditions=None),
+            FSMTransition(from_state="LATE", to_state="NON_COMPLIANT", trigger_event="grace_expired", conditions=None),
+        ],
+        timeline_rules=[
+            TimelineRule(start_event="start", deadline_offset=1, grace_period=0, time_unit="days", overdue_transition="LATE"),
+        ],
+        metadata={},
+    )
+
+
+# =============================================================================
+# M9 Regression — V1 interactive demo fixes
+# =============================================================================
+
+
+class TestResumeEndpoint:
+    """Regression tests for the POST /api/pipeline/{run_id}/resume endpoint (RC #2)."""
+
+    @pytest.mark.asyncio
+    async def test_resume_endpoint_returns_200(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """Resume endpoint should return 200 after all FSMs are approved."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        _reset_all_stores()
+
+        llm = MultiMockLLMClient(PARSER_RESPONSE, FSM_RESPONSE)
+        runner = PipelineRunner(llm_client=llm)
+        from app.api.deps import set_runner
+        set_runner(runner)
+
+        # Trigger pipeline via runner
+        state = await runner.start(
+            circular_path=str(demo_circular_path),
+            circular_id=CIRCULAR_REF,
+            telemetry_events=list(demo_telemetry_events),
+        )
+
+        # Approve all FSMs on disk
+        locked = _load_locked_fsms_from_disk(state.run_id)
+        approved = [_make_approved_fsm(f) for f in locked]
+        from app.pipeline.nodes.hitl_gate import persist_locked_fsms
+        persist_locked_fsms(approved, state.run_id)
+
+        # Resume via the new endpoint
+        client = TestClient(app)
+        resp = client.post(f"/api/pipeline/{state.run_id}/resume")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["run_id"] == state.run_id
+        assert data["status"] == "completed"
+        assert data["verdict_count"] > 0
+
+    @pytest.mark.asyncio
+    async def test_resume_endpoint_rejects_pending_fsms(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """Resume endpoint should return 400 when FSMs are still pending."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        _reset_all_stores()
+
+        llm = MultiMockLLMClient(PARSER_RESPONSE, FSM_RESPONSE)
+        runner = PipelineRunner(llm_client=llm)
+        from app.api.deps import set_runner
+        set_runner(runner)
+
+        state = await runner.start(
+            circular_path=str(demo_circular_path),
+            circular_id=CIRCULAR_REF,
+            telemetry_events=list(demo_telemetry_events),
+        )
+
+        # Don't approve any FSMs — all should still be pending
+
+        client = TestClient(app)
+        resp = client.post(f"/api/pipeline/{state.run_id}/resume")
+        assert resp.status_code == 400
+        assert "still pending review" in resp.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_resume_endpoint_merges_telemetry(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """Telemetry ingested via API should be merged before evaluation (RC #7)."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.api.routes.telemetry import _get_telemetry_store
+
+        _reset_all_stores()
+
+        llm = MultiMockLLMClient(PARSER_RESPONSE, FSM_RESPONSE)
+        runner = PipelineRunner(llm_client=llm)
+        from app.api.deps import set_runner
+        set_runner(runner)
+
+        # Trigger with NO telemetry
+        state = await runner.start(
+            circular_path=str(demo_circular_path),
+            circular_id=CIRCULAR_REF,
+            telemetry_events=[],
+        )
+
+        # Ingest telemetry separately via the global store
+        tstore = _get_telemetry_store()
+        for ev in demo_telemetry_events:
+            tstore.setdefault(ev.broker_id, []).append(ev)
+
+        # Approve all FSMs
+        locked = _load_locked_fsms_from_disk(state.run_id)
+        approved = [_make_approved_fsm(f) for f in locked]
+        from app.pipeline.nodes.hitl_gate import persist_locked_fsms
+        persist_locked_fsms(approved, state.run_id)
+
+        # Resume — should merge telemetry from global store
+        client = TestClient(app)
+        resp = client.post(f"/api/pipeline/{state.run_id}/resume")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["verdict_count"] > 0
+
+
+class TestStatusFix:
+    """Regression tests for get_pipeline_status returning correct FSM counts (RC #5, #6)."""
+
+    @pytest.mark.asyncio
+    async def test_status_shows_correct_fsm_counts_during_awaiting_approval(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """Status endpoint must show FSM counts from disk when awaiting approval."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        _reset_all_stores()
+
+        llm = MultiMockLLMClient(PARSER_RESPONSE, FSM_RESPONSE)
+        runner = PipelineRunner(llm_client=llm)
+        from app.api.deps import set_runner
+        set_runner(runner)
+
+        state = await runner.start(
+            circular_path=str(demo_circular_path),
+            circular_id=CIRCULAR_REF,
+            telemetry_events=list(demo_telemetry_events),
+        )
+
+        client = TestClient(app)
+        resp = client.get(f"/api/pipeline/status/{state.run_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_fsms"] > 0, f"Expected positive total_fsms, got {data['total_fsms']}"
+        assert data["pending"] > 0, f"Expected positive pending, got {data['pending']}"
+
+
+class TestHitlListFix:
+    """Regression tests for list_hitl_runs scanning disk (RC #4)."""
+
+    @pytest.mark.asyncio
+    async def test_hitl_list_without_run_id_includes_disk_runs(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """HITL list without run_id should find runs from disk."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        _reset_all_stores()
+
+        llm = MultiMockLLMClient(PARSER_RESPONSE, FSM_RESPONSE)
+        runner = PipelineRunner(llm_client=llm)
+        from app.api.deps import set_runner
+        set_runner(runner)
+
+        state = await runner.start(
+            circular_path=str(demo_circular_path),
+            circular_id=CIRCULAR_REF,
+            telemetry_events=list(demo_telemetry_events),
+        )
+
+        client = TestClient(app)
+        resp = client.get("/api/pipeline/hitl")
+        assert resp.status_code == 200
+        data = resp.json()
+        ids = [r["run_id"] for r in data["runs"]]
+        assert state.run_id in ids, (
+            f"Expected {state.run_id} in HITL list, got {ids}"
+        )
+
+
+class TestCountFsmsFix:
+    """Regression tests for _count_fsms() using .value instead of str() (RC #6)."""
+
+    def test_count_fsms_counts_correctly(self):
+        """_count_fsms must correctly count by status.value."""
+        from app.api.routes.pipeline import _count_fsms
+        from app.models.locked_fsm import LockedFSM, LockStatus
+        from app.models.fsm import FSMState, FSMTransition, HybridFSM, TimelineRule
+
+        # Build a minimal but valid FSM with all 5 canonical states
+        fsm = _make_minimal_fsm()
+        pending = LockedFSM(
+            fsm_id="FSM-TEST",
+            obligation_ref="CIRC-001",
+            circular_ref="SEBI-TEST",
+            version=1,
+            original_fsm=fsm,
+            status=LockStatus.PENDING_REVIEW,
+        )
+        approved = pending.model_copy(deep=True)
+        approved.status = LockStatus.APPROVED
+        rejected = pending.model_copy(deep=True)
+        rejected.status = LockStatus.REJECTED
+        amended = pending.model_copy(deep=True)
+        amended.status = LockStatus.AMENDED
+
+        counts = _count_fsms([pending, approved, rejected, amended])
+        assert counts == {"pending": 1, "approved": 1, "rejected": 1, "amended": 1}
+
+    def test_count_fsms_all_pending(self):
+        """All-pending should return correct counts."""
+        from app.api.routes.pipeline import _count_fsms
+        from app.models.locked_fsm import LockedFSM, LockStatus
+
+        fsm1 = _make_minimal_fsm()  # fsm_id="FSM-TEST"
+        fsm2_data = _make_minimal_fsm().model_dump()
+        fsm2_data["fsm_id"] = "FSM-TEST2"
+        fsm2_data["obligation_ref"] = "CIRC-002"
+        from app.models.fsm import HybridFSM
+        fsm2 = HybridFSM.model_validate(fsm2_data)
+
+        locked = [
+            LockedFSM(fsm_id="FSM-TEST", obligation_ref="CIRC-001", circular_ref="SEBI-TEST", version=1, original_fsm=fsm1, status=LockStatus.PENDING_REVIEW),
+            LockedFSM(fsm_id="FSM-TEST2", obligation_ref="CIRC-002", circular_ref="SEBI-TEST", version=1, original_fsm=fsm2, status=LockStatus.PENDING_REVIEW),
+        ]
+        counts = _count_fsms(locked)
+        assert counts["pending"] == 2
+        assert counts["approved"] == 0

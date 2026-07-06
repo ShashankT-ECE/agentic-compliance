@@ -17,10 +17,17 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import pipeline, reports, telemetry
+
+# ---------------------------------------------------------------------------
+# Load environment variables from .env file BEFORE any dependency initialisation
+# ---------------------------------------------------------------------------
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 

@@ -275,7 +275,7 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       className="btn btn--primary btn--sm"
-                      onClick={() => setSelectedRunId(run.run_id)}
+                      onClick={() => navigate(`/hitl/${run.run_id}`)}
                     >
                       Review
                     </button>

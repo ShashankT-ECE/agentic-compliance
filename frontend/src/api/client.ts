@@ -484,6 +484,26 @@ export async function queryTelemetry(
   );
 }
 
+// -- Resume ------------------------------------------------------------------
+
+/** POST /api/pipeline/resume/{run_id} — response */
+export interface ResumeResponse {
+  run_id: string;
+  status: string;
+  verdict_count: number;
+  scoreboard_id: string | null;
+  message: string;
+}
+
+/** POST /api/pipeline/{run_id}/resume — resume a paused pipeline. */
+export async function resumePipeline(
+  runId: string,
+): Promise<ResumeResponse> {
+  return request<ResumeResponse>(`/api/pipeline/${runId}/resume`, {
+    method: 'POST',
+  });
+}
+
 // -- Reports -----------------------------------------------------------------
 
 /** GET /api/reports/generate/{run_id} */

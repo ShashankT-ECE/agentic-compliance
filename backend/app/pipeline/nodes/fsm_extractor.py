@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent / "prompts"
 _DEFAULT_PROMPT_PATH = _PROMPT_DIR / "fsm_extractor_prompt.md"
 
-_EXTRACTED_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "extracted"
+_EXTRACTED_DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "extracted"
 
 # Minimum expected transitions for a well-formed FSM (event-driven + deadline)
 _MIN_TRANSITIONS = 3

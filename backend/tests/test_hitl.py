@@ -498,18 +498,22 @@ class TestHitlGateNode:
             "status": "fsm_extracted",
         }
 
+        import app.pipeline.nodes.hitl_gate as hmod
+        _saved_dir = hmod._LOCKED_DATA_DIR
         with tempfile.TemporaryDirectory() as tmpdir:
-            import app.pipeline.nodes.hitl_gate as hmod
-            hmod._LOCKED_DATA_DIR = Path(tmpdir)
-            result = hitl_gate_node(state)
+            try:
+                hmod._LOCKED_DATA_DIR = Path(tmpdir)
+                result = hitl_gate_node(state)
 
-            assert result["status"].value == "awaiting_approval"
-            assert result["locked_fsms"] == []  # not populated until approved
+                assert result["status"].value == "awaiting_approval"
+                assert result["locked_fsms"] == []  # not populated until approved
 
-            # Verify files were persisted
-            run_dir = Path(tmpdir) / RUN_ID
-            assert run_dir.exists()
-            assert len(list(run_dir.glob("LOCKED-*.json"))) == 4
+                # Verify files were persisted
+                run_dir = Path(tmpdir) / RUN_ID
+                assert run_dir.exists()
+                assert len(list(run_dir.glob("LOCKED-*.json"))) == 4
+            finally:
+                hmod._LOCKED_DATA_DIR = _saved_dir
 
     def test_node_empty_fsms_raises(self):
         state = {
@@ -550,10 +554,9 @@ def seeded_run(api_client: TestClient, tmp_path: Path) -> tuple[str, Path]:
 class TestApiListFsms:
     """Tests for GET /api/pipeline/{run_id}/fsms."""
 
-    def test_list_fsms(self, api_client, seeded_run):
+    def test_list_fsms(self, api_client, seeded_run, monkeypatch):
         run_id, tmpdir = seeded_run
-        import app.api.routes.pipeline as pmod
-        pmod._LOCKED_DATA_DIR = tmpdir
+        monkeypatch.setattr("app.api.routes.pipeline._LOCKED_DATA_DIR", tmpdir)
         resp = api_client.get(f"/api/pipeline/{run_id}/fsms")
         assert resp.status_code == 200
         data = resp.json()

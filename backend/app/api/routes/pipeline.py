@@ -43,7 +43,7 @@ router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 # Data directory (overridable for testing)
 # ---------------------------------------------------------------------------
 
-_LOCKED_DATA_DIR: Path = Path(__file__).resolve().parent.parent.parent / "data" / "locked_fsms"
+_LOCKED_DATA_DIR: Path = Path(__file__).resolve().parent.parent.parent.parent / "data" / "locked_fsms"
 
 
 def _get_data_dir() -> Path:
@@ -67,7 +67,7 @@ class AmendAction(BaseModel):
 
     reviewer: str = Field(..., min_length=1, description="Identity of the human reviewer")
     review_comments: str = Field(..., min_length=1, description="Description of what was changed and why")
-    corrected_fsm: dict[str, Any] = Field(..., description="The corrected HybridFSM JSON")
+    corrected_fsm: Any = Field(..., description="The corrected HybridFSM JSON (object or JSON string)")
 
 
 class FsmSummary(BaseModel):
@@ -286,8 +286,17 @@ def amend_fsm_endpoint(run_id: str, locked_fsm_id: str, action: AmendAction) -> 
     _get_run_dir(run_id)
 
     # Validate the corrected FSM through Pydantic
+    corrected_data = action.corrected_fsm
+    if isinstance(corrected_data, str):
+        try:
+            import json as _json
+            corrected_data = _json.loads(corrected_data)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON in corrected_fsm")
+    if not isinstance(corrected_data, dict):
+        raise HTTPException(status_code=400, detail="corrected_fsm must be a JSON object")
     try:
-        corrected_fsm = HybridFSM.model_validate(action.corrected_fsm)
+        corrected_fsm = HybridFSM.model_validate(corrected_data)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid corrected FSM: {exc}")
 
@@ -468,10 +477,12 @@ def get_pipeline_status(run_id: str) -> dict[str, Any]:
     """Get the current status of a pipeline run."""
     from app.api.deps import get_run
     from app.pipeline.nodes.hitl_gate import load_locked_fsms
+    from app.models.locked_fsm import LockStatus
 
     state = get_run(run_id)
+
+    # ── Fallback: run not in memory — try disk ──────────────────────────
     if state is None:
-        # Check if the run exists on disk (from HITL persistence)
         try:
             locked_fsms = load_locked_fsms(run_id)
         except Exception:
@@ -489,18 +500,47 @@ def get_pipeline_status(run_id: str) -> dict[str, Any]:
             "created_at": None,
         }
 
+    # ── Run is in memory ────────────────────────────────────────────────
+    status_val = str(state.status.value)
+
+    # When awaiting approval, locked_fsms in state is intentionally empty
+    # (populated on resume).  Load counts from disk for accurate reporting.
+    if status_val == "awaiting_approval" and not state.locked_fsms:
+        try:
+            locked_fsms = load_locked_fsms(run_id)
+            counts = _count_fsms(locked_fsms)
+        except Exception:
+            counts = {"pending": 0, "approved": 0, "rejected": 0, "amended": 0}
+
+        return {
+            "run_id": run_id,
+            "circular_id": state.circular_id,
+            "status": status_val,
+            "total_fsms": sum(counts.values()),
+            **counts,
+            "verdict_count": 0,
+            "scoreboard_id": None,
+            "created_at": state.metadata.get("started_at", ""),
+        }
+
+    # ── Normal path: state has locked_fsms (post-resume or completed) ───
     verdicts = state.compliance_verdicts
     scoreboard = state.scoreboard
+
+    locked = state.locked_fsms
+    counts = {
+        "pending": sum(1 for f in locked if _status_str(f) == "pending_review"),
+        "approved": sum(1 for f in locked if _status_str(f) == "approved"),
+        "rejected": sum(1 for f in locked if _status_str(f) == "rejected"),
+        "amended": sum(1 for f in locked if _status_str(f) == "amended"),
+    }
 
     return {
         "run_id": run_id,
         "circular_id": state.circular_id,
-        "status": str(state.status.value),
-        "total_fsms": len(state.locked_fsms),
-        "pending": 0,
-        "approved": 0,
-        "rejected": 0,
-        "amended": 0,
+        "status": status_val,
+        "total_fsms": len(locked),
+        **counts,
         "verdict_count": len(verdicts),
         "scoreboard_id": scoreboard.scoreboard_id if scoreboard else None,
         "created_at": state.metadata.get("started_at", ""),
@@ -536,6 +576,131 @@ def get_pipeline_result(run_id: str) -> dict[str, Any]:
 
 
 # =========================================================================
+# M7 — Resume endpoint
+# =========================================================================
+
+
+class ResumeResponse(BaseModel):
+    """Response for POST /pipeline/{run_id}/resume."""
+
+    run_id: str
+    status: str
+    verdict_count: int
+    scoreboard_id: str | None
+    message: str
+
+
+@router.post("/{run_id}/resume", response_model=ResumeResponse)
+async def resume_pipeline(run_id: str) -> dict[str, Any]:
+    """Resume a paused pipeline after all FSMs have been reviewed.
+
+    Loads approved/amended LockedFSMs from disk, merges telemetry from the
+    global ingest store, and runs the evaluator → scoreboard to completion.
+
+    Requires all FSMs to be reviewed (no PENDING_REVIEW remaining).
+    Falls back to disk-based state reconstruction when the in-memory state
+    is unavailable (e.g. after server restart).
+    """
+    from app.api.deps import get_run, get_runner
+    from app.api.routes.telemetry import _get_telemetry_store
+    from app.models.locked_fsm import LockStatus
+    from app.pipeline.state import CompliancePipelineState, PipelineStatus
+
+    # 1. Load locked FSMs from disk
+    try:
+        locked_fsms = load_locked_fsms(run_id, data_dir=_get_data_dir())
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Pipeline run '{run_id}' not found")
+
+    if not locked_fsms:
+        raise HTTPException(status_code=404, detail=f"No FSMs found for run '{run_id}'")
+
+    # 2. Check for pending FSMs
+    pending = [f for f in locked_fsms if f.status == LockStatus.PENDING_REVIEW]
+    if pending:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(pending)} FSM(s) still pending review. Review all FSMs before resuming.",
+        )
+
+    # 3. Filter to approved/amended
+    active = [f for f in locked_fsms if f.status in (LockStatus.APPROVED, LockStatus.AMENDED)]
+    if not active:
+        raise HTTPException(status_code=400, detail="No approved or amended FSMs to evaluate")
+
+    # 4. Get in-memory state (or reconstruct from disk)
+    state = get_run(run_id)
+    if state is not None:
+        current_status = str(state.status.value)
+        if current_status in ("completed", "evaluated", "generating_scoreboard"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Pipeline run '{run_id}' is already completed (status: {current_status})",
+            )
+
+    if state is None:
+        # ── Disk fallback: reconstruct minimal state ──────────────────────
+        logger.info("Run '%s' not in memory — reconstructing from disk", run_id)
+        from app.pipeline.runner import _get_store
+        from datetime import datetime, timezone
+
+        state = CompliancePipelineState(
+            run_id=run_id,
+            circular_id=locked_fsms[0].circular_ref,
+            telemetry_events=[],
+            metadata={
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "reconstructed_from_disk": True,
+            },
+        )
+        state.status = PipelineStatus.AWAITING_APPROVAL
+        # Seed the runner's store so resume() can find it
+        store = _get_store()
+        store[run_id] = type(
+            "RunRecord",
+            (),
+            {"state": state, "created_at": datetime.now(timezone.utc).isoformat()},
+        )()
+
+    # 5. Merge telemetry from the global ingest store into pipeline state
+    telemetry_store = _get_telemetry_store()
+    existing_ids = {e.event_id for e in state.telemetry_events}
+    for broker_events in telemetry_store.values():
+        for ev in broker_events:
+            if ev.event_id not in existing_ids:
+                state.telemetry_events.append(ev)
+                existing_ids.add(ev.event_id)
+
+    logger.info(
+        "Resuming run '%s': %d approved FSM(s), %d telemetry event(s)",
+        run_id,
+        len(active),
+        len(state.telemetry_events),
+    )
+
+    # 6. Resume through evaluator → scoreboard
+    runner = get_runner()
+    try:
+        final_state = await runner.resume(run_id, active)
+    except Exception as exc:
+        logger.exception("Resume failed for run '%s'", run_id)
+        raise HTTPException(status_code=500, detail=f"Pipeline resume failed: {exc}")
+
+    scoreboard = final_state.scoreboard
+
+    return {
+        "run_id": run_id,
+        "status": str(final_state.status.value),
+        "verdict_count": len(final_state.compliance_verdicts),
+        "scoreboard_id": scoreboard.scoreboard_id if scoreboard else None,
+        "message": (
+            f"Pipeline completed with {len(final_state.compliance_verdicts)} verdict(s). "
+            f"Report can now be generated."
+        ),
+    }
+
+
+# =========================================================================
 # M7 — Simplified HITL endpoints (operate on the most recent run by default)
 # =========================================================================
 
@@ -546,21 +711,55 @@ class HitlListResponse(BaseModel):
     runs: list[dict[str, Any]]
 
 
-@router.get("/hitl", response_model=HitlListResponse)
+@router.get("/hitl")
 def list_hitl_runs(run_id: str | None = None) -> dict[str, Any]:
     """List HITL review items.
 
     If run_id is provided, returns FSMs for that specific run.
-    Otherwise returns all runs with pending FSMs.
+    Otherwise returns all runs with pending FSMs (from memory and disk).
     """
     if run_id:
         return _get_hitl_for_run(run_id)
 
-    # Scan all runs for awaiting-approval status
+    # Collect runs from in-memory store
     from app.pipeline.runner import get_all_runs
 
     all_runs = get_all_runs()
     awaiting = [r for r in all_runs if r["status"] == "awaiting_approval"]
+    seen_ids = {r["run_id"] for r in awaiting}
+
+    # Also scan disk for runs not in memory (survives server restart)
+    data_dir = _get_data_dir()
+    if data_dir.exists():
+        for run_dir in sorted(data_dir.iterdir()):
+            if not run_dir.is_dir() or run_dir.name in seen_ids:
+                continue
+            state_path = run_dir / "_pipeline_state.json"
+            if not state_path.exists():
+                continue
+            try:
+                import json as _json
+                state_data = _json.loads(state_path.read_text(encoding="utf-8"))
+                if state_data.get("pending", 0) > 0:
+                    # Need circular_ref — load from first LockedFSM file
+                    circular_ref = "UNKNOWN"
+                    for fpath in sorted(run_dir.glob("LOCKED-*.json")):
+                        try:
+                            lfsm_data = _json.loads(fpath.read_text(encoding="utf-8"))
+                            circular_ref = lfsm_data.get("circular_ref", "UNKNOWN")
+                            break
+                        except Exception:
+                            pass
+                    awaiting.append({
+                        "run_id": run_dir.name,
+                        "circular_ref": circular_ref,
+                        "total_fsms": state_data.get("total_fsms", 0),
+                        "pending": state_data.get("pending", 0),
+                        "status": "awaiting_approval",
+                    })
+            except Exception:
+                logger.warning("Failed to read pipeline state from %s", state_path)
+
     return {"runs": awaiting}
 
 
@@ -616,11 +815,19 @@ def hitl_amend(fsm_id: str, run_id: str, action: AmendAction) -> dict[str, Any]:
 def _count_fsms(locked_fsms: list[Any]) -> dict[str, int]:
     """Count FSMs by status."""
     return {
-        "pending": sum(1 for f in locked_fsms if str(f.status) == "pending_review"),
-        "approved": sum(1 for f in locked_fsms if str(f.status) == "approved"),
-        "rejected": sum(1 for f in locked_fsms if str(f.status) == "rejected"),
-        "amended": sum(1 for f in locked_fsms if str(f.status) == "amended"),
+        "pending": sum(1 for f in locked_fsms if _status_str(f) == "pending_review"),
+        "approved": sum(1 for f in locked_fsms if _status_str(f) == "approved"),
+        "rejected": sum(1 for f in locked_fsms if _status_str(f) == "rejected"),
+        "amended": sum(1 for f in locked_fsms if _status_str(f) == "amended"),
     }
+
+
+def _status_str(f: Any) -> str:
+    """Extract the status value string from a LockedFSM or dict."""
+    try:
+        return str(f.status.value)
+    except AttributeError:
+        return str(f.get("status", "unknown"))
 
 
 def _serialize_verdict(verdict: Any) -> dict[str, Any]:

@@ -23,10 +23,10 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Project
-backend/data/circulars/*
-backend/data/extracted/*
-backend/data/locked_fsms/*
+# Project — runtime-generated pipeline data
+backend/data/circulars/
+backend/data/extracted/
+backend/data/locked_fsms/
 !backend/data/**/.gitkeep
 
 # Docker

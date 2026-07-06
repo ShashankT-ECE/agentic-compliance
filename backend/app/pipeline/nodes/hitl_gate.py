@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 
-_LOCKED_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "locked_fsms"
+_LOCKED_DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "locked_fsms"
 
 
 # ---------------------------------------------------------------------------
