@@ -145,6 +145,36 @@
 - **Rationale**: Pipeline execution is the primary integration concern. Testing via HTTP adds latency and complexity without additional coverage. The HTTP layer is independently tested in `test_orchestration.py` (53 tests).
 - **Status**: Implemented in `test_integration.py` (26 tests, M9).
 
+### 2026-07-06 — Disk-authoritative HITL list (no in-memory store dependency)
+
+- **Decision**: `list_hitl_runs()` (no `run_id` path) reads exclusively from disk — `data/locked_fsms/` — rather than the in-memory `_run_store`. Disk is the authoritative source.
+- **Rationale**: The in-memory store is volatile (lost on restart, accumulates stale entries). Disk is durable and verifiable. The prior two-source approach (memory + disk supplement) leaked stale runs.
+- **Status**: Implemented in `pipeline.py`.
+
+### 2026-07-06 — Truncated JSON array recovery in parser
+
+- **Decision**: Added "Attempt 4" to `_extract_json_from_response()` — character-by-character depth tracking to recover complete top-level JSON objects from truncated LLM responses. Salvages partial results instead of failing entirely.
+- **Rationale**: Real LLM APIs can truncate responses when `max_tokens` is exceeded. Recovering 2 of 3 clauses is better than losing all 3. Combined with `max_tokens=16384` (up from 4096) as defense in depth.
+- **Status**: Implemented in `parser.py`. 4 regression tests added.
+
+### 2026-07-06 — Data path resolution: `backend/data/` not `backend/app/data/`
+
+- **Decision**: All `__file__`-based data path constants use 4× `.parent` (reaching `backend/`) instead of 3× `.parent` (which reached `backend/app/`).
+- **Rationale**: The `.gitignore` was written for `backend/data/` — that was always the intended location. The code was off by one directory level. Fixing the code rather than the `.gitignore` preserves the original intent.
+- **Status**: Implemented in `hitl_gate.py`, `fsm_extractor.py`, `pipeline.py`.
+
+### 2026-07-06 — Enterprise UI design system (blue/slate/white palette)
+
+- **Decision**: Frontend CSS redesigned with enterprise palette (blue brand #2563eb, slate neutrals #0f172a–#f8fafc). FSM terminology replaced with "Compliance Obligation" in presentation layer. TypeScript interfaces and backend models unchanged.
+- **Rationale**: Target audience is SEBI compliance officers — the UI must feel like a professional regulatory tool, not a developer prototype. Technical terminology (FSM, state machine) is confusing to non-technical users.
+- **Status**: Implemented in V1.0.1 (committed). Additional polish in V1.0.2 working tree.
+
+### 2026-07-06 — Fixed-position SVG workflow diagram (linear layout)
+
+- **Decision**: Replaced dynamic grid-based SVG state diagram with fixed-position linear layout: PENDING → DUE → LATE → NON_COMPLIANT, with COMPLIANT as a branch node above. No overlapping arrows.
+- **Rationale**: The grid layout produced curved overlapping arrows when states were connected in non-grid patterns. A fixed layout matching the actual business workflow is clearer for compliance review.
+- **Status**: Implemented in `FSMViewer/index.tsx` (V1.0.2 working tree).
+
 ---
 
 ## Template for New Entries

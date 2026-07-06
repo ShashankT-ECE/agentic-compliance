@@ -7,17 +7,20 @@
 
 ## Overall Completion
 
-**V1 COMPLETE (~100%)** — All M0–M9 milestones merged and verified. 389 tests passing.
+**V1.0.1 COMPLETE + PUSHED** — All M0–M9 milestones + interactive demo fixes + enterprise UI polish committed. 404 tests passing.
+
+**V1.0.2 in working tree** — Dashboard sync fix, workflow diagram redesign, remaining terminology cleanup.
 
 ---
 
 ## Backend
 
-- [x] FastAPI app entry point (`main.py`) — ✅ M7
+- [x] FastAPI app entry point (`main.py`) — ✅ M7 → ✅ V1.0.1 (load_dotenv added)
 - [x] API routes — pipeline trigger, status, result — ✅ M7
 - [x] API routes — HITL review (approve/reject/amend) — ✅ M4/M7
 - [x] API routes — telemetry ingest and query — ✅ M7
 - [x] API routes — compliance reports — ✅ M7
+- [x] API routes — pipeline resume (`POST /{run_id}/resume`) — ✅ V1.0.1
 - [x] API dependency injection (`deps.py`) — ✅ M7
 - [x] Data models — obligations (`models/obligation.py`) — ✅ M0
 - [x] Data models — telemetry (`models/telemetry.py`) — ✅ M0
@@ -27,16 +30,16 @@
 - [x] Data models — scoreboard (`models/scoreboard.py`) — ✅ M0
 - [x] Utility — PDF ingestion (`utils/pdf_ingest.py`) — ✅ M1
 - [x] Utility — hash chain integrity (`utils/hash_chain.py`) — ✅ M3
-- [x] Utility — LLM client (`utils/llm_client.py`) — ✅ M1
+- [x] Utility — LLM client (`utils/llm_client.py`) — ✅ M1 → ✅ V1.0.1 (max_tokens=16384)
 - [x] Utility — telemetry generation (`utils/telemetry_gen.py`) — ✅ M5
 - [x] Utility — state machine engine (`utils/state_machine.py`) — ✅ M5
 - [x] Utility — timeline evaluator (`utils/timeline_evaluator.py`) — ✅ M5
 - [x] Pipeline — state schema (`pipeline/state.py`) — ✅ M0
 - [x] Pipeline — graph orchestration (`pipeline/graph.py`) — ✅ M7
 - [x] Pipeline — runner (`pipeline/runner.py`) — ✅ M7
-- [x] Node 1 — PDF Parser (`pipeline/nodes/parser.py`) — ✅ M1
-- [x] Node 2 — FSM Extractor (`pipeline/nodes/fsm_extractor.py`) — ✅ M2
-- [x] HITL Gate — (`pipeline/nodes/hitl_gate.py`) — ✅ M4
+- [x] Node 1 — PDF Parser (`pipeline/nodes/parser.py`) — ✅ M1 → ✅ V1.0.1 (truncation recovery)
+- [x] Node 2 — FSM Extractor (`pipeline/nodes/fsm_extractor.py`) — ✅ M2 → ✅ V1.0.1 (data path fix)
+- [x] HITL Gate — (`pipeline/nodes/hitl_gate.py`) — ✅ M4 → ✅ V1.0.1 (data path fix)
 - [x] Node 3 — Assertion Evaluator (`pipeline/nodes/evaluator.py`) — ✅ M5
 - [x] Node 4 — Scoreboard Generator (`pipeline/nodes/scoreboard.py`) — ✅ M6
 - [ ] Database connection & migrations — V2
@@ -44,21 +47,18 @@
 ## Frontend
 
 - [x] Vite + React app scaffold — ✅ M8
-- [x] Dependencies installed (184 packages, builds successfully) — ✅ M8
+- [x] Dependencies installed — ✅ M8
 - [x] TypeScript strict mode configured — ✅ M8
-- [x] `tsconfig.json` — ✅ M8 Phase 1
-- [x] `index.html` — Vite entry point — ✅ M8 Phase 1
-- [x] `App.tsx` + `App.css` — layout shell, routing, design system — ✅ M8 Phase 1
-- [x] `main.tsx` — React 19 root mount — ✅ M8 Phase 1
-- [x] `api/client.ts` — typed fetch client for all 12 endpoints — ✅ M8 Phase 2
-- [x] `store/useComplianceStore.ts` — Zustand store with loading/error states — ✅ M8 Phase 2
-- [x] Dashboard page (`pages/index.tsx`) — ✅ M8 Phase 4
-- [x] Report page (`pages/report.tsx`) — ✅ M8 Phase 4
-- [x] CircularPanel component — ✅ M8 Phase 3
-- [x] FSMViewer component — ✅ M8 Phase 3
-- [x] AuditReport component — ✅ M8 Phase 3
-- [x] TelemetryTable component — ✅ M8 Phase 3
-- [x] Integration polish (routing, error handling, UX) — ✅ M8 Phase 5
+- [x] `App.tsx` + `App.css` — layout, routing, enterprise design system — ✅ M8 → ✅ V1.0.1 (CSS rewrite)
+- [x] `api/client.ts` — typed fetch client (12 endpoints + resume) — ✅ M8 → ✅ V1.0.1
+- [x] `store/useComplianceStore.ts` — Zustand store (12 actions + resume) — ✅ M8 → ✅ V1.0.1
+- [x] Dashboard page (`pages/index.tsx`) — ✅ M8 → ✅ V1.0.1 → ✅ V1.0.2 (sync fix in working tree)
+- [x] Report page (`pages/report.tsx`) — ✅ M8
+- [x] HITL review page (`pages/hitl.tsx`) — ✅ V1.0.1 → ✅ V1.0.2 (onReviewed sync in working tree)
+- [x] CircularPanel component — ✅ M8
+- [x] FSMViewer component — ✅ M8 → ✅ V1.0.1 (labels, no floating text) → ✅ V1.0.2 (linear layout in working tree)
+- [x] AuditReport component — ✅ M8
+- [x] TelemetryTable component — ✅ M8
 - [ ] Frontend unit/component tests — V2
 
 ## LangGraph
@@ -67,42 +67,73 @@
 - [x] 5-node pipeline graph compiles and executes — ✅ M7
 - [x] Pipeline DAG definition (`graph.py`) — ✅ M7
 - [x] State schema and routing — ✅ M0/M7
-- [x] Node wiring (Parser → FSM Extractor → HITL → Evaluator → Scoreboard) — ✅ M7
-- [x] Conditional HITL edge (approved → evaluator, pending/rejected → END) — ✅ M7
+- [x] Node wiring — ✅ M7
+- [x] Conditional HITL edge — ✅ M7
 - [x] Error handling and retry logic — ✅ M7
-- [x] Pydantic state ↔ dict bridge fix (preserves sub-models) — ✅ M9
+- [x] Pydantic state ↔ dict bridge fix — ✅ M9
 
 ## Nodes
 
-- [x] Node 1 — PDF Parser (LLM allowed) — ✅ M1
-- [x] Node 2 — FSM Extractor (LLM allowed) — ✅ M2
-- [x] HITL Gate — (deterministic, no LLM) — ✅ M4
+- [x] Node 1 — PDF Parser (LLM allowed) — ✅ M1 → ✅ V1.0.1
+- [x] Node 2 — FSM Extractor (LLM allowed) — ✅ M2 → ✅ V1.0.1
+- [x] HITL Gate (deterministic, no LLM) — ✅ M4 → ✅ V1.0.1
 - [x] Node 3 — Assertion Evaluator (LLM strictly prohibited) — ✅ M5
 - [x] Node 4 — Scoreboard Generator (formatting only) — ✅ M6
 
 ## Testing
 
 - [x] `test_models.py` — 68 tests — ✅ M0
-- [x] `test_parser.py` — 35 tests — ✅ M1
+- [x] `test_parser.py` — 39 tests (35 original + 4 truncation recovery) — ✅ M1 → ✅ V1.0.1
 - [x] `test_fsm.py` — 34 tests — ✅ M2
 - [x] `test_hash_chain.py` — 20 tests — ✅ M3
-- [x] `test_hitl.py` — 46 tests — ✅ M4
+- [x] `test_hitl.py` — 46 tests — ✅ M4 → ✅ V1.0.1 (monkeypatch fix)
 - [x] `test_evaluator.py` — 69 tests — ✅ M5
 - [x] `test_scoreboard.py` — 38 tests — ✅ M6
 - [x] `test_orchestration.py` — 53 tests — ✅ M7
-- [x] `test_integration.py` — 26 tests — ✅ M9
+- [x] `test_integration.py` — 37 tests (26 original + 7 resume + 4 HITL list) — ✅ M9 → ✅ V1.0.1
 - [ ] Frontend tests — V2
 - [ ] CI automation — V2
 
-**Suite total**: **389 tests — 389 passed, 0 failed**
+**Suite total**: **404 tests — 404 passed, 0 failed**
 
-## M9 — End-to-End Demo & Final Validation
+## V1.0.1 — Interactive Demo Fixes + Enterprise UI
 
-- [x] Demo fixtures (sample_circular.pdf, sample_telemetry.json) — ✅
-- [x] Demo fixtures in conftest.py (5 fixtures) — ✅
-- [x] Integration tests (26 tests, 8 classes) — ✅
-- [x] Demo script (`scripts/run_demo.sh`) — ✅
-- [x] Final validation (389 tests, frontend build, safety gate, hash chain) — ✅
+- [x] Root cause diagnosis (8 bugs identified) — ✅
+- [x] `.env` loading fix — ✅
+- [x] Resume endpoint (`POST /{run_id}/resume`) — ✅
+- [x] HITL review page — ✅
+- [x] Disk-authoritative HITL list — ✅
+- [x] `get_pipeline_status` disk fallback — ✅
+- [x] `_count_fsms()` enum fix — ✅
+- [x] Telemetry merge on resume — ✅
+- [x] Dashboard status sync via resume action — ✅
+- [x] Data path resolution fix (backend/app/data → backend/data) — ✅
+- [x] `.gitignore` pattern fix (`/*` → `/`) — ✅
+- [x] `test_hitl.py` mutation fix — ✅
+- [x] `HitlListResponse` model fix — ✅
+- [x] `AmendAction` type fix — ✅
+- [x] Resume completed-run guard — ✅
+- [x] Parser `max_tokens` 4096 → 16384 — ✅
+- [x] Parser truncation recovery (Attempt 4) — ✅
+- [x] Regression tests (7 resume + 4 HITL list + 4 parser) — ✅
+- [x] Enterprise CSS redesign — ✅
+- [x] FSM → Compliance Obligation labels — ✅
+- [x] Floating transition labels removed — ✅
+- [x] Git commit `8845e8a` and push — ✅
+- [x] Branch synchronization (6 of 7 branches) — ✅
+- [x] HITL list rewrite (disk-authoritative, zero stale leaks) — ✅
+- [x] Real DeepSeek v4 Pro end-to-end verification — ✅
+
+## V1.0.2 — Final Demo Polish (uncommitted)
+
+- [x] Dashboard state sync fix (onReviewed calls fetchHitlList + fetchStatus) — ✅ (working tree)
+- [x] Linear workflow diagram redesign (no overlapping arrows) — ✅ (working tree)
+- [x] FSM-XXXX → OBL-XXXX formatting — ✅ (working tree)
+- [x] Initial State → Current Status label — ✅ (working tree)
+- [ ] Final manual browser demo — pending
+- [ ] Clean stale runtime data — pending
+- [ ] One clean end-to-end demo — pending
+- [ ] Commit and push V1.0.2 — pending
 
 ## Environment
 
@@ -111,23 +142,22 @@
 - [x] 104+ Python packages installed
 - [x] 184 frontend packages installed
 - [x] LangGraph validated (1.2.7)
-- [x] DeepSeek integration surface ready (swappable LLM client)
-- [x] Frontend builds with zero errors
+- [x] DeepSeek API configured (key in backend/.env, model=deepseek-v4-pro)
+- [x] Frontend builds with zero errors (52 modules)
 - [x] Docker configs complete (basic)
-- [ ] DeepSeek API key configured
-- [ ] poppler-utils installed (requires sudo)
-- [ ] Docker Compose full-stack (frontend service) — V2
+- [ ] poppler-utils installed (requires sudo) — V2
+- [ ] Docker Compose full-stack — V2
 
 ## Memory System
 
 - [x] `CLAUDE.md` — permanent operating manual
-- [x] `memory/current_task.md` — exact resume point
-- [x] `memory/progress.md` — high-level status tracker
-- [x] `memory/project_handoff.md` — permanent project overview
-- [x] `memory/session_handoff.md` — session summary
-- [x] `memory/decision_log.md` — architectural decision records
-- [x] `memory/graphify_handoff.md` — pipeline graph topology
-- [x] `memory/project_roadmap.md` — milestone plan
+- [x] `memory/current_task.md` — updated 2026-07-06
+- [x] `memory/progress.md` — updated 2026-07-06
+- [x] `memory/project_handoff.md` — updated 2026-07-06
+- [x] `memory/session_handoff.md` — updated 2026-07-06
+- [x] `memory/decision_log.md` — updated 2026-07-06
+- [x] `memory/graphify_handoff.md` — updated 2026-07-06
+- [x] `memory/project_roadmap.md` — unchanged (V2 scope)
 
 ## Documentation
 
@@ -141,12 +171,15 @@
 
 - [x] Pipeline executes end-to-end (headless mode)
 - [x] Demo fixtures loaded and validated
-- [x] `scripts/run_demo.sh` completes in one command
+- [x] `scripts/run_demo.sh` completes in one command (MockLLMClient)
+- [x] Real DeepSeek API works end-to-end (4 clauses extracted)
+- [x] Interactive frontend demo functional (HITL review page + resume)
 - [x] Dashboard displays compliance status
 - [x] Audit report renders findings
-- [x] FSM visualization works
+- [x] Compliance workflow visualization works
 - [x] Data integrity (hash chain) verifiable
 - [x] Tamper detection confirmed (4 attack vectors)
+- [ ] Final clean end-to-end demo — pending (stale runtime data to clean)
 
 ---
 
@@ -162,4 +195,4 @@
 - [ ] API reference completion (12/12 endpoints)
 - [ ] Production hardening (rate limiting, logging, monitoring)
 - [ ] Real SEBI circular integration
-- [ ] Code-quality cleanup (deduplicate MiniCount/MiniStat)
+- [ ] Code-quality cleanup (extract inline styles, deduplicate helpers)
