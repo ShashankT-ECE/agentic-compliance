@@ -716,49 +716,70 @@ def list_hitl_runs(run_id: str | None = None) -> dict[str, Any]:
     """List HITL review items.
 
     If run_id is provided, returns FSMs for that specific run.
-    Otherwise returns all runs with pending FSMs (from memory and disk).
+    Otherwise scans disk for all runs with pending obligations.
+    Disk is the authoritative source — the in-memory store is volatile.
     """
     if run_id:
         return _get_hitl_for_run(run_id)
 
-    # Collect runs from in-memory store
-    from app.pipeline.runner import get_all_runs
-
-    all_runs = get_all_runs()
-    awaiting = [r for r in all_runs if r["status"] == "awaiting_approval"]
-    seen_ids = {r["run_id"] for r in awaiting}
-
-    # Also scan disk for runs not in memory (survives server restart)
+    # Scan disk for runs with pending FSMs — disk is the source of truth
+    awaiting: list[dict[str, Any]] = []
     data_dir = _get_data_dir()
     if data_dir.exists():
+        import json as _json
         for run_dir in sorted(data_dir.iterdir()):
-            if not run_dir.is_dir() or run_dir.name in seen_ids:
+            if not run_dir.is_dir():
                 continue
+
+            # Skip empty directories (orphaned or cleaned up)
+            fsm_files = sorted(run_dir.glob("LOCKED-*.json"))
+            if not fsm_files:
+                continue
+
+            # Read pipeline state for counts
             state_path = run_dir / "_pipeline_state.json"
-            if not state_path.exists():
+            pending_count = 0
+            total_fsms = len(fsm_files)
+            if state_path.exists():
+                try:
+                    state_data = _json.loads(state_path.read_text(encoding="utf-8"))
+                    pending_count = state_data.get("pending", 0)
+                    total_fsms = state_data.get("total_fsms", total_fsms)
+                except Exception:
+                    logger.warning("Failed to read pipeline state from %s", state_path)
+
+            # Determine pending count from actual files if state file is stale
+            if pending_count == 0:
+                # Re-count from file contents
+                for fpath in fsm_files:
+                    try:
+                        lfsm_data = _json.loads(fpath.read_text(encoding="utf-8"))
+                        if lfsm_data.get("status") == "pending_review":
+                            pending_count += 1
+                    except Exception:
+                        pass
+
+            # Only include runs with at least one pending obligation
+            if pending_count == 0:
                 continue
-            try:
-                import json as _json
-                state_data = _json.loads(state_path.read_text(encoding="utf-8"))
-                if state_data.get("pending", 0) > 0:
-                    # Need circular_ref — load from first LockedFSM file
-                    circular_ref = "UNKNOWN"
-                    for fpath in sorted(run_dir.glob("LOCKED-*.json")):
-                        try:
-                            lfsm_data = _json.loads(fpath.read_text(encoding="utf-8"))
-                            circular_ref = lfsm_data.get("circular_ref", "UNKNOWN")
-                            break
-                        except Exception:
-                            pass
-                    awaiting.append({
-                        "run_id": run_dir.name,
-                        "circular_ref": circular_ref,
-                        "total_fsms": state_data.get("total_fsms", 0),
-                        "pending": state_data.get("pending", 0),
-                        "status": "awaiting_approval",
-                    })
-            except Exception:
-                logger.warning("Failed to read pipeline state from %s", state_path)
+
+            # Get circular_ref from the first LockedFSM file
+            circular_ref = "UNKNOWN"
+            for fpath in fsm_files:
+                try:
+                    lfsm_data = _json.loads(fpath.read_text(encoding="utf-8"))
+                    circular_ref = lfsm_data.get("circular_ref", "UNKNOWN")
+                    break
+                except Exception:
+                    pass
+
+            awaiting.append({
+                "run_id": run_dir.name,
+                "circular_ref": circular_ref,
+                "total_fsms": total_fsms,
+                "pending": pending_count,
+                "status": "awaiting_approval",
+            })
 
     return {"runs": awaiting}
 

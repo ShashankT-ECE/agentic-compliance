@@ -146,7 +146,7 @@ function CompletedRunsSection({
           <div className="placeholder-page" style={{ minHeight: '10vh' }}>
             <p className="placeholder-page__subtitle">
               No completed pipeline runs available. Trigger a pipeline, approve the
-              FSMs at the HITL gate, and return here to generate a report.
+              compliance obligations at the HITL gate, and return here to generate a report.
             </p>
           </div>
         )}

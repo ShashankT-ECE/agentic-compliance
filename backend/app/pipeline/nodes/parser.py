@@ -153,6 +153,70 @@ def _extract_json_from_response(raw_response: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue
 
+    # Attempt 4: Truncated JSON array recovery.
+    #
+    # If the LLM response starts with '[' but the JSON is incomplete (e.g.
+    # max_tokens cut it off), try to salvage by finding the last *complete*
+    # top-level JSON object, closing the array, and parsing what we can.
+    # This is critical for production use with real LLM APIs where token
+    # limits can truncate long responses.
+    if stripped.startswith("[") and not stripped.endswith("]"):
+        logger.warning(
+            "LLM response looks like a truncated JSON array "
+            "(%d chars, %d '[' vs %d ']' — unbalanced). "
+            "Attempting recovery of complete objects.",
+            len(raw_response),
+            stripped.count("["),
+            stripped.count("]"),
+        )
+        # Walk the array content character by character, tracking depth,
+        # to find the position of the last complete top-level object.
+        depth = 0
+        in_string = False
+        escape = False
+        last_complete_end = -1
+        for i, ch in enumerate(stripped):
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch in ("[", "{"):
+                depth += 1
+            elif ch in ("]", "}"):
+                depth -= 1
+                # When we return to array-level depth (1 after the opening '['),
+                # we've just closed a top-level object.
+                if depth == 1 and ch == "}":
+                    last_complete_end = i + 1
+
+        if last_complete_end > 0:
+            # Build the recoverable fragment: everything up to and including
+            # the last complete top-level object, then close the array.
+            recovered = stripped[:last_complete_end] + "\n]"
+            try:
+                data = json.loads(recovered)
+                if isinstance(data, list) and len(data) > 0:
+                    logger.warning(
+                        "Recovered %d clause(s) from truncated JSON array "
+                        "(approximately %d char(s) lost after the last "
+                        "complete object).",
+                        len(data),
+                        len(stripped) - last_complete_end,
+                    )
+                    return data
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Truncation recovery failed — recovered fragment "
+                    "is not valid JSON."
+                )
+
     logger.error("Failed to extract JSON array from LLM response (%d chars)", len(raw_response))
     raise ValueError(
         "Could not extract a valid JSON array from the LLM response. "

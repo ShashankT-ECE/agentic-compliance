@@ -1,17 +1,13 @@
 /**
- * Dashboard page — pipeline overview, HITL queue, and telemetry status.
+ * Dashboard page — pipeline overview, review queue, and telemetry.
  *
  * Route: `/`
  *
  * Layout:
- *  1. Pipeline trigger / current run panel (CircularPanel)
- *  2. Pipeline runs list with selection
- *  3. Run detail (FSM counts, status) when a run is selected
- *  4. HITL review queue summary
- *  5. Telemetry quick stats
- *
- * All data flows through the Zustand store.  No mock data, no hard-coded
- * values.  Every section handles loading, empty, and error states.
+ *  1. Pipeline trigger / current run panel
+ *  2. Pipeline runs list + detail (side-by-side)
+ *  3. Review queue summary
+ *  4. Telemetry quick stats
  */
 
 import { useEffect, useState } from 'react';
@@ -21,9 +17,6 @@ import CircularPanel from '../components/CircularPanel';
 import type { PipelineStatus } from '../api/client';
 
 export default function DashboardPage() {
-  // ------------------------------------------------------------------
-  // Store
-  // ------------------------------------------------------------------
   const runs = useComplianceStore((s) => s.runs);
   const currentRun = useComplianceStore((s) => s.currentRun);
   const hitlRuns = useComplianceStore((s) => s.hitlRuns);
@@ -40,30 +33,17 @@ export default function DashboardPage() {
   const reset = useComplianceStore((s) => s.reset);
 
   const navigate = useNavigate();
-
-  // Local UI state
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
-  // ------------------------------------------------------------------
-  // On mount: load HITL queue and telemetry
-  // ------------------------------------------------------------------
   useEffect(() => {
     fetchHitlList();
     queryTelemetry({ limit: 5, offset: 0 });
   }, [fetchHitlList, queryTelemetry]);
 
-  // ------------------------------------------------------------------
-  // When a run is selected from the list, fetch its full status
-  // ------------------------------------------------------------------
   useEffect(() => {
-    if (selectedRunId) {
-      fetchStatus(selectedRunId);
-    }
+    if (selectedRunId) fetchStatus(selectedRunId);
   }, [selectedRunId, fetchStatus]);
 
-  // ------------------------------------------------------------------
-  // Handlers
-  // ------------------------------------------------------------------
   function handleTriggered(runId: string) {
     setSelectedRunId(runId);
     fetchHitlList();
@@ -71,9 +51,7 @@ export default function DashboardPage() {
 
   async function handleGenerateReport(runId: string) {
     const id = await generateReport(runId);
-    if (id) {
-      navigate(`/report/${id}`);
-    }
+    if (id) navigate(`/report/${id}`);
   }
 
   function handleClearAll() {
@@ -81,47 +59,41 @@ export default function DashboardPage() {
     setSelectedRunId(null);
   }
 
-  // ------------------------------------------------------------------
-  // Derived data
-  // ------------------------------------------------------------------
   const selectedRun = runs.find((r) => r.run_id === selectedRunId) ?? currentRun;
   const pendingHitlCount = hitlRuns.reduce((sum, r) => sum + (r.pending ?? 0), 0);
   const latestEvents = telemetryEvents.slice(0, 3);
 
-  // ------------------------------------------------------------------
-  // Render
-  // ------------------------------------------------------------------
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* ================================================================
-          Section 1 — Pipeline Panel
+          Section 1 — Pipeline trigger / current run
           ================================================================ */}
       <CircularPanel run={selectedRun} onTriggered={handleTriggered} />
 
       {/* ================================================================
-          Section 2 — Runs List + Detail (side-by-side on wide screens)
+          Section 2 — Runs List + Detail
           ================================================================ */}
       <div className="grid-2" style={{ alignItems: 'start' }}>
         {/* Runs list */}
         <section className="card">
           <div className="card__header">
-            <h2 className="card__title">Pipeline Runs</h2>
+            <h2 className="card__title">
+              <span className="card__title-icon">📋</span>
+              Pipeline Runs
+            </h2>
             {runs.length > 0 && (
-              <span className="badge badge--neutral">{runs.length}</span>
+              <span className="badge badge--brand">{runs.length}</span>
             )}
           </div>
-
           <div className="card__body">
-            {/* Empty */}
             {runs.length === 0 && (
-              <div className="placeholder-page" style={{ minHeight: '12vh' }}>
+              <div className="placeholder-page" style={{ minHeight: '10vh', padding: 'var(--space-6)' }}>
                 <p className="placeholder-page__subtitle">
                   No pipeline runs yet. Trigger one above to get started.
                 </p>
               </div>
             )}
 
-            {/* List */}
             {runs.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                 {runs.map((run) => (
@@ -129,47 +101,17 @@ export default function DashboardPage() {
                     key={run.run_id}
                     type="button"
                     onClick={() => setSelectedRunId(run.run_id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      width: '100%',
-                      padding: 'var(--space-3) var(--space-4)',
-                      textAlign: 'left',
-                      background:
-                        selectedRunId === run.run_id
-                          ? 'var(--color-primary-100)'
-                          : 'var(--color-neutral-50)',
-                      border:
-                        selectedRunId === run.run_id
-                          ? '1px solid var(--color-primary-500)'
-                          : '1px solid var(--color-neutral-200)',
-                      borderRadius: 'var(--radius-md)',
-                      cursor: 'pointer',
-                      font: 'inherit',
-                      color: 'inherit',
-                      transition: 'background 0.1s, border-color 0.1s',
-                    }}
+                    className={
+                      selectedRunId === run.run_id
+                        ? 'run-card run-card--selected'
+                        : 'run-card'
+                    }
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          fontSize: 'var(--text-sm)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
+                      <div className="run-card__id">
                         {run.circular_id}
                       </div>
-                      <div
-                        style={{
-                          fontSize: 'var(--text-xs)',
-                          color: 'var(--color-neutral-500)',
-                          marginTop: 'var(--space-1)',
-                        }}
-                      >
+                      <div className="run-card__circular">
                         {run.run_id}
                       </div>
                     </div>
@@ -179,7 +121,6 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Clear all */}
             {runs.length > 0 && (
               <button
                 type="button"
@@ -187,7 +128,7 @@ export default function DashboardPage() {
                 style={{ marginTop: 'var(--space-3)' }}
                 onClick={handleClearAll}
               >
-                Clear All Runs
+                Clear All
               </button>
             )}
           </div>
@@ -203,75 +144,50 @@ export default function DashboardPage() {
       </div>
 
       {/* ================================================================
-          Section 3 — HITL Queue Summary
+          Section 3 — Review Queue
           ================================================================ */}
       <section className="card">
         <div className="card__header">
-          <h2 className="card__title">HITL Review Queue</h2>
+          <h2 className="card__title">
+            <span className="card__title-icon">👁️</span>
+            Pending Reviews
+          </h2>
           {pendingHitlCount > 0 && (
-            <span className="badge badge--pending">{pendingHitlCount} pending</span>
+            <span className="badge badge--pending">{pendingHitlCount} to review</span>
           )}
         </div>
-
         <div className="card__body">
-          {/* Loading */}
           {loadingHitl && !hitlRuns.length && (
-            <div className="skeleton" style={{ height: '4rem' }} />
+            <div className="skeleton" style={{ height: '3rem' }} />
           )}
 
-          {/* Empty */}
           {!loadingHitl && hitlRuns.length === 0 && (
-            <div className="placeholder-page" style={{ minHeight: '8vh' }}>
+            <div className="placeholder-page" style={{ minHeight: '6vh', padding: 'var(--space-4)' }}>
               <p className="placeholder-page__subtitle">
-                No FSMs awaiting review. Trigger a pipeline to populate the HITL queue.
+                No compliance obligations awaiting review. Trigger a pipeline to populate the queue.
               </p>
             </div>
           )}
 
-          {/* Populated */}
           {hitlRuns.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {hitlRuns.map((run) => (
                 <div
                   key={run.run_id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: 'var(--space-3) var(--space-4)',
-                    background: 'var(--color-warning-100)',
-                    border: '1px solid var(--color-warning-500)',
-                    borderRadius: 'var(--radius-md)',
-                    flexWrap: 'wrap',
-                    gap: 'var(--space-3)',
-                  }}
+                  className="review-banner review-banner--pending"
+                  style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}
                 >
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
                       {run.circular_ref}
                     </div>
-                    <div
-                      style={{
-                        fontSize: 'var(--text-xs)',
-                        color: 'var(--color-neutral-600)',
-                        fontFamily: 'var(--font-mono)',
-                        marginTop: 'var(--space-1)',
-                      }}
-                    >
+                    <div style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', opacity: 0.7, marginTop: 'var(--space-1)' }}>
                       {run.run_id}
                     </div>
                   </div>
-
-                  <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center' }}>
-                    <MiniCount
-                      label="Total"
-                      value={run.total_fsms}
-                    />
-                    <MiniCount
-                      label="Pending"
-                      value={run.pending}
-                      tone="warn"
-                    />
+                  <div style={{ display: 'flex', gap: 'var(--space-5)', alignItems: 'center' }}>
+                    <MiniStat label="Total" value={run.total_fsms} />
+                    <MiniStat label="Pending" value={run.pending} tone="warn" />
                     <button
                       type="button"
                       className="btn btn--primary btn--sm"
@@ -282,7 +198,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ))}
-
               <button
                 type="button"
                 className="btn btn--secondary btn--sm"
@@ -298,48 +213,36 @@ export default function DashboardPage() {
       </section>
 
       {/* ================================================================
-          Section 4 — Telemetry Quick Stats
+          Section 4 — Telemetry
           ================================================================ */}
       <section className="card">
         <div className="card__header">
-          <h2 className="card__title">Telemetry</h2>
+          <h2 className="card__title">
+            <span className="card__title-icon">📡</span>
+            Broker Telemetry
+          </h2>
           {telemetryTotal > 0 && (
             <span className="badge badge--neutral">{telemetryTotal.toLocaleString()} events</span>
           )}
         </div>
-
         <div className="card__body">
-          {/* Loading */}
           {loadingTelemetry && telemetryTotal === 0 && (
-            <div className="skeleton" style={{ height: '4rem' }} />
+            <div className="skeleton" style={{ height: '3rem' }} />
           )}
 
-          {/* Empty */}
           {!loadingTelemetry && telemetryTotal === 0 && (
-            <div className="placeholder-page" style={{ minHeight: '8vh' }}>
+            <div className="placeholder-page" style={{ minHeight: '6vh', padding: 'var(--space-4)' }}>
               <p className="placeholder-page__subtitle">
-                No telemetry events ingested yet. Use the Telemetry Table on a run
-                detail to ingest broker events.
+                No telemetry events ingested yet. Use the Telemetry Table to ingest broker events for evaluation.
               </p>
             </div>
           )}
 
-          {/* Populated */}
           {telemetryTotal > 0 && (
             <div>
-              {/* Recent events preview */}
               {latestEvents.length > 0 && (
                 <div style={{ marginBottom: 'var(--space-3)' }}>
-                  <div
-                    style={{
-                      fontSize: 'var(--text-xs)',
-                      fontWeight: 600,
-                      color: 'var(--color-neutral-500)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
-                      marginBottom: 'var(--space-2)',
-                    }}
-                  >
+                  <div style={{ fontSize: 'var(--text-2xs)', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-2)' }}>
                     Recent Events
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
@@ -347,23 +250,21 @@ export default function DashboardPage() {
                       <div
                         key={ev.event_id}
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           padding: 'var(--space-2) var(--space-3)',
-                          background: 'var(--color-neutral-100)',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--color-neutral-200)',
+                          background: 'var(--color-slate-50)',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--color-slate-200)',
                           fontSize: 'var(--text-sm)',
                         }}
                       >
                         <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center', minWidth: 0 }}>
                           <span style={{ fontWeight: 500 }}>{ev.broker_id}</span>
-                          <code style={{ fontSize: 'var(--text-xs)', color: 'var(--color-neutral-600)' }}>
+                          <code style={{ fontSize: 'var(--text-xs)', color: 'var(--color-slate-500)' }}>
                             {ev.event_type}
                           </code>
                         </div>
-                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-neutral-400)', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-slate-400)', whiteSpace: 'nowrap' }}>
                           {new Date(ev.timestamp).toLocaleString()}
                         </span>
                       </div>
@@ -371,7 +272,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )}
-
               <button
                 type="button"
                 className="btn btn--secondary btn--sm"
@@ -389,56 +289,33 @@ export default function DashboardPage() {
 }
 
 // ============================================================================
-// Internal sub-components
+// Sub-components
 // ============================================================================
 
 function StatusBadge({ status }: { status: string }) {
-  let tone: 'ok' | 'warn' | 'bad' | 'neutral' = 'neutral';
-
+  let cls: string;
   switch (status) {
-    case 'completed':
-    case 'evaluated':
-    case 'approved':
-      tone = 'ok';
-      break;
-    case 'awaiting_approval':
-    case 'generating_scoreboard':
-      tone = 'warn';
-      break;
-    case 'rejected':
-    case 'failed':
-      tone = 'bad';
-      break;
+    case 'completed': case 'evaluated': case 'approved':
+      cls = 'badge--compliant'; break;
+    case 'awaiting_approval': case 'generating_scoreboard':
+      cls = 'badge--pending'; break;
+    case 'rejected': case 'failed':
+      cls = 'badge--non-compliant'; break;
+    default:
+      cls = 'badge--neutral';
   }
-
-  const cls =
-    tone === 'ok'
-      ? 'badge--compliant'
-      : tone === 'warn'
-        ? 'badge--pending'
-        : tone === 'bad'
-          ? 'badge--non-compliant'
-          : 'badge--neutral';
-
   const label = status.replace(/_/g, ' ');
-
   return <span className={`badge ${cls}`}>{label}</span>;
 }
 
 function RunDetailCard({
-  run,
-  loading,
-  onGenerateReport,
-  loadingGenerate,
+  run, loading, onGenerateReport, loadingGenerate,
 }: {
   run: PipelineStatus | null | undefined;
   loading: boolean;
   onGenerateReport: (runId: string) => void;
   loadingGenerate: boolean;
 }) {
-  // ------------------------------------------------------------------
-  // Empty (no run selected)
-  // ------------------------------------------------------------------
   if (!run) {
     return (
       <section className="card">
@@ -446,8 +323,7 @@ function RunDetailCard({
           <h2 className="card__title">Run Detail</h2>
         </div>
         <div className="card__body">
-          <div className="placeholder-page" style={{ minHeight: '14vh' }}>
-            <div className="placeholder-page__icon" aria-hidden="true">📋</div>
+          <div className="placeholder-page" style={{ minHeight: '10vh', padding: 'var(--space-4)' }}>
             <p className="placeholder-page__subtitle">
               Select a pipeline run from the list to view its details.
             </p>
@@ -457,9 +333,6 @@ function RunDetailCard({
     );
   }
 
-  // ------------------------------------------------------------------
-  // Loading
-  // ------------------------------------------------------------------
   if (loading) {
     return (
       <section className="card">
@@ -467,15 +340,12 @@ function RunDetailCard({
           <h2 className="card__title">Run Detail</h2>
         </div>
         <div className="card__body">
-          <div className="skeleton" style={{ height: '12rem' }} />
+          <div className="skeleton" style={{ height: '10rem' }} />
         </div>
       </section>
     );
   }
 
-  // ------------------------------------------------------------------
-  // Populated
-  // ------------------------------------------------------------------
   const isComplete = run.status === 'completed' || run.status === 'evaluated';
 
   return (
@@ -484,63 +354,46 @@ function RunDetailCard({
         <h2 className="card__title">Run Detail</h2>
         <StatusBadge status={run.status} />
       </div>
-
       <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        {/* Key metadata */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          <MetaField label="Run ID" value={run.run_id} mono />
-          <MetaField label="Circular" value={run.circular_id} />
-          <MetaField
-            label="Created"
-            value={run.created_at ? new Date(run.created_at).toLocaleString() : '—'}
-          />
-          <MetaField
-            label="Scoreboard"
-            value={run.scoreboard_id ?? '—'}
-          />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+          <div className="meta-row">
+            <span className="meta-row__label">Run ID</span>
+            <span className="meta-row__value meta-row__value--mono">{run.run_id}</span>
+          </div>
+          <div className="meta-row">
+            <span className="meta-row__label">Circular</span>
+            <span className="meta-row__value">{run.circular_id}</span>
+          </div>
+          <div className="meta-row">
+            <span className="meta-row__label">Created</span>
+            <span className="meta-row__value">{run.created_at ? new Date(run.created_at).toLocaleString() : '—'}</span>
+          </div>
+          <div className="meta-row">
+            <span className="meta-row__label">Scoreboard</span>
+            <span className="meta-row__value meta-row__value--mono">{run.scoreboard_id ?? '—'}</span>
+          </div>
         </div>
 
-        {/* FSM counts */}
         {run.total_fsms > 0 && (
           <div>
-            <div
-              style={{
-                fontSize: 'var(--text-xs)',
-                fontWeight: 600,
-                color: 'var(--color-neutral-500)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                marginBottom: 'var(--space-3)',
-              }}
-            >
-              FSM Status
+            <div style={{ fontSize: 'var(--text-2xs)', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-3)' }}>
+              Obligations
             </div>
-            <FsmStatusGrid
-              total={run.total_fsms}
-              pending={run.pending}
-              approved={run.approved}
-              rejected={run.rejected}
-              amended={run.amended}
-            />
+            <div className="grid-4" style={{ gap: 'var(--space-2)' }}>
+              <StatMini label="Total" value={run.total_fsms} variant="brand" />
+              <StatMini label="Pending" value={run.pending} variant="warn" />
+              <StatMini label="Resolved" value={(run.approved ?? 0) + (run.amended ?? 0)} variant="ok" />
+              <StatMini label="Rejected" value={run.rejected} variant="bad" />
+            </div>
           </div>
         )}
 
-        {/* Verdict summary */}
         {run.verdict_count > 0 && (
-          <div
-            style={{
-              padding: 'var(--space-3)',
-              background: 'var(--color-neutral-100)',
-              borderRadius: 'var(--radius-md)',
-              fontSize: 'var(--text-sm)',
-            }}
-          >
-            <span style={{ fontWeight: 600 }}>{run.verdict_count}</span>{' '}
-            compliance verdicts generated
+          <div style={{ padding: 'var(--space-3)', background: 'var(--color-slate-50)', borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)' }}>
+            <span style={{ fontWeight: 600 }}>{run.verdict_count}</span> compliance verdicts generated
           </div>
         )}
 
-        {/* Actions */}
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
           {isComplete && run.verdict_count > 0 && (
             <button
@@ -558,124 +411,32 @@ function RunDetailCard({
   );
 }
 
-function MetaField({
-  label,
-  value,
-  mono = false,
+function StatMini({
+  label, value, variant,
 }: {
-  label: string;
-  value: string;
-  mono?: boolean;
+  label: string; value: number; variant: 'ok' | 'warn' | 'bad' | 'brand';
 }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
-      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-neutral-500)', whiteSpace: 'nowrap' }}>
-        {label}
-      </span>
-      <span
-        style={{
-          fontFamily: mono ? 'var(--font-mono)' : undefined,
-          fontSize: 'var(--text-sm)',
-          textAlign: 'right',
-          wordBreak: 'break-all',
-        }}
-      >
-        {value}
-      </span>
+    <div className={`stat-card stat-card--${variant}`} style={{ padding: 'var(--space-3)' }}>
+      <div className="stat-card__value" style={{ fontSize: 'var(--text-xl)' }}>{value}</div>
+      <div className="stat-card__label">{label}</div>
     </div>
   );
 }
 
-function FsmStatusGrid({
-  total,
-  pending,
-  approved,
-  rejected,
-  amended,
+function MiniStat({
+  label, value, tone,
 }: {
-  total: number;
-  pending: number;
-  approved: number;
-  rejected: number;
-  amended: number;
+  label: string; value: number; tone?: 'ok' | 'warn' | 'bad';
 }) {
-  return (
-    <div className="grid-4" style={{ gap: 'var(--space-2)' }}>
-      <FsmStat label="Total" value={total} />
-      <FsmStat label="Pending" value={pending} tone="warn" />
-      <FsmStat
-        label="Approved"
-        value={approved + amended}
-        tone="ok"
-      />
-      <FsmStat label="Rejected" value={rejected} tone="bad" />
-    </div>
-  );
-}
-
-function FsmStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: 'ok' | 'warn' | 'bad';
-}) {
-  const color =
-    tone === 'ok'
-      ? 'var(--color-success-700)'
-      : tone === 'warn'
-        ? 'var(--color-warning-700)'
-        : tone === 'bad'
-          ? 'var(--color-danger-700)'
-          : 'var(--color-neutral-700)';
-
-  return (
-    <div
-      style={{
-        textAlign: 'center',
-        padding: 'var(--space-2)',
-        background: 'var(--color-neutral-100)',
-        borderRadius: 'var(--radius-md)',
-      }}
-    >
-      <div style={{ fontSize: 'var(--text-xl)', fontWeight: 700, color, lineHeight: 1.2 }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-neutral-500)' }}>
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function MiniCount({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: 'ok' | 'warn' | 'bad';
-}) {
-  const color =
-    tone === 'ok'
-      ? 'var(--color-success-700)'
-      : tone === 'warn'
-        ? 'var(--color-warning-700)'
-        : tone === 'bad'
-          ? 'var(--color-danger-700)'
-          : 'var(--color-neutral-700)';
-
+  const color = tone === 'ok' ? 'var(--color-success-700)'
+    : tone === 'warn' ? 'var(--color-warning-700)'
+    : tone === 'bad' ? 'var(--color-danger-700)'
+    : 'var(--color-slate-700)';
   return (
     <div style={{ textAlign: 'center', minWidth: '3rem' }}>
-      <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color, lineHeight: 1.2 }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-neutral-500)' }}>
-        {label}
-      </div>
+      <div style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color, lineHeight: 1.2 }}>{value}</div>
+      <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--color-slate-500)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</div>
     </div>
   );
 }

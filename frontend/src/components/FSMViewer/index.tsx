@@ -1,13 +1,14 @@
 /**
- * FSMViewer — finite state machine diagram + detail tables.
+ * Compliance Workflow Viewer — state diagram + detail tables.
  *
  * Renders an SVG state diagram (states as nodes, transitions as arrows)
- * along with transition and timeline-rule tables for a single HybridFSM.
+ * along with transition and timeline-rule tables for a single compliance
+ * obligation's HybridFSM.
  *
  * Accepts both a raw HybridFSM and a LockedFSM (which wraps one).
  *
  * States handled:
- *  - empty:     no FSM provided
+ *  - empty:     no obligation provided
  *  - populated: diagram + tables rendered
  */
 
@@ -29,22 +30,22 @@ export interface FSMViewerProps {
 // SVG layout constants
 // ============================================================================
 
-const NODE_RADIUS = 44;
-const NODE_GAP_X = 160;
+const NODE_RADIUS = 48;
+const NODE_GAP_X = 170;
 const NODE_GAP_Y = 130;
 const COLS = 4;
-const SVG_PADDING = 48;
+const SVG_PADDING = 52;
 
-/** Colour per canonical state name. */
+/** Colour per canonical state name — enterprise palette. */
 const STATE_COLORS: Record<string, { fill: string; stroke: string; text: string }> = {
-  PENDING:       { fill: '#fffff0', stroke: '#d69e2e', text: '#975a16' },
-  DUE:           { fill: '#fffaf0', stroke: '#dd6b20', text: '#9c4221' },
-  COMPLIANT:     { fill: '#f0fff4', stroke: '#38a169', text: '#276749' },
-  LATE:          { fill: '#fff5f5', stroke: '#e53e3e', text: '#9b2c2c' },
-  NON_COMPLIANT: { fill: '#fff5f5', stroke: '#c53030', text: '#742a2a' },
+  PENDING:       { fill: '#fefce8', stroke: '#c88a04', text: '#713f12' },
+  DUE:           { fill: '#fff7ed', stroke: '#ea580c', text: '#7c2d12' },
+  COMPLIANT:     { fill: '#f0fdf4', stroke: '#15803d', text: '#14532d' },
+  LATE:          { fill: '#fef2f2', stroke: '#dc2626', text: '#7f1d1d' },
+  NON_COMPLIANT: { fill: '#fef2f2', stroke: '#b91c1c', text: '#450a0a' },
 };
 
-const DEFAULT_COLOR = { fill: '#f7fafc', stroke: '#a0aec0', text: '#4a5568' };
+const DEFAULT_COLOR = { fill: '#f8fafc', stroke: '#94a3b8', text: '#334155' };
 
 // ============================================================================
 // Component
@@ -54,7 +55,7 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
   // Resolve the HybridFSM
   const resolved = lockedFsm?.original_fsm ?? fsm ?? null;
 
-  // Build a lookup of source→target pairs for drawing arrows
+  // Build a lookup of source->target pairs for drawing arrows
   const transitionPairs = useMemo(() => {
     if (!resolved) return [];
     return resolved.transitions.map((t) => ({
@@ -98,13 +99,15 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
     return (
       <section className="card">
         <div className="card__header">
-          <h2 className="card__title">FSM Viewer</h2>
+          <h2 className="card__title">
+            <span className="card__title-icon">🔀</span>
+            Compliance Workflow
+          </h2>
         </div>
         <div className="card__body">
-          <div className="placeholder-page" style={{ minHeight: '20vh' }}>
-            <div className="placeholder-page__icon" aria-hidden="true">🔀</div>
+          <div className="placeholder-page" style={{ minHeight: '16vh' }}>
             <p className="placeholder-page__subtitle">
-              Select a circular and run to view extracted finite state machines.
+              Select a compliance obligation to view its workflow diagram.
             </p>
           </div>
         </div>
@@ -116,17 +119,41 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
   // Populated
   // ------------------------------------------------------------------
   return (
-    <section className="card">
-      <div className="card__header">
-        <h2 className="card__title">
-          FSM: {resolved.obligation_ref}
-        </h2>
+    <div
+      style={{
+        background: '#fff',
+        border: '1px solid var(--color-slate-200)',
+        borderRadius: 'var(--radius-lg)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: 'var(--space-4) var(--space-5)',
+          borderBottom: '1px solid var(--color-slate-150)',
+        }}
+      >
+        <h3
+          style={{
+            fontSize: 'var(--text-sm)',
+            fontWeight: 600,
+            color: 'var(--color-slate-700)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+          }}
+        >
+          🔀 Workflow Diagram
+        </h3>
         <span className="badge badge--neutral">
           {resolved.states.length} states
         </span>
       </div>
 
-      <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      <div style={{ padding: 'var(--space-5)' }}>
         {/* Metadata */}
         <MetadataRow fsm={resolved} />
 
@@ -134,9 +161,10 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
         <figure
           style={{
             overflowX: 'auto',
-            background: 'var(--color-neutral-50)',
+            background: 'var(--color-slate-50)',
             borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--color-neutral-300)',
+            border: '1px solid var(--color-slate-200)',
+            marginTop: 'var(--space-4)',
           }}
         >
           <svg
@@ -145,14 +173,13 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
             role="img"
             aria-label={`State diagram for ${resolved.obligation_ref}`}
           >
-            {/* Single shared defs — avoids duplicate marker IDs */}
             <defs>
               <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="var(--color-neutral-500)" />
+                <polygon points="0 0, 8 3, 0 6" fill="var(--color-slate-400)" />
               </marker>
             </defs>
 
-            {/* Transition arrows */}
+            {/* Transition arrows — no floating labels */}
             {transitionPairs.map((t, i) => {
               const src = positions.get(t.from);
               const dst = positions.get(t.to);
@@ -164,7 +191,6 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
                   y1={src.y}
                   x2={dst.x}
                   y2={dst.y}
-                  label={t.trigger}
                   r={NODE_RADIUS}
                 />
               );
@@ -199,15 +225,21 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
 
         {/* Transition table */}
         {resolved.transitions.length > 0 && (
-          <TransitionTable transitions={resolved.transitions} />
+          <div style={{ marginTop: 'var(--space-5)' }}>
+            <TableHeading>Transitions ({resolved.transitions.length})</TableHeading>
+            <TransitionTable transitions={resolved.transitions} />
+          </div>
         )}
 
         {/* Timeline rules */}
         {resolved.timeline_rules.length > 0 && (
-          <TimelineRulesTable rules={resolved.timeline_rules} />
+          <div style={{ marginTop: 'var(--space-5)' }}>
+            <TableHeading>Timeline Rules ({resolved.timeline_rules.length})</TableHeading>
+            <TimelineRulesTable rules={resolved.timeline_rules} />
+          </div>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -216,20 +248,10 @@ export default function FSMViewer({ fsm, lockedFsm }: FSMViewerProps) {
 // ============================================================================
 
 function StateNode({
-  cx,
-  cy,
-  r,
-  label,
-  isInitial,
-  isTerminal,
-  colors,
+  cx, cy, r, label, isInitial, isTerminal, colors,
 }: {
-  cx: number;
-  cy: number;
-  r: number;
-  label: string;
-  isInitial: boolean;
-  isTerminal: boolean;
+  cx: number; cy: number; r: number; label: string;
+  isInitial: boolean; isTerminal: boolean;
   colors: { fill: string; stroke: string; text: string };
 }) {
   return (
@@ -238,45 +260,40 @@ function StateNode({
       {isInitial && (
         <>
           <line
-            x1={cx - r - 24}
-            y1={cy}
-            x2={cx - r - 2}
-            y2={cy}
-            stroke="var(--color-neutral-500)"
-            strokeWidth={1.5}
+            x1={cx - r - 24} y1={cy} x2={cx - r - 2} y2={cy}
+            stroke="var(--color-slate-500)" strokeWidth={1.5}
             markerEnd="url(#arrowhead)"
           />
-          <text x={cx - r - 28} y={cy - 8} textAnchor="end" fontSize={11} fill="var(--color-neutral-500)">
-            start
-          </text>
+          <text x={cx - r - 28} y={cy - 8} textAnchor="end" fontSize={11}
+            fill="var(--color-slate-500)" fontWeight={500}>start</text>
         </>
       )}
 
       {/* Terminal double border */}
       {isTerminal && (
-        <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke={colors.stroke} strokeWidth={1.5} opacity={0.5} />
+        <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke={colors.stroke}
+          strokeWidth={1.5} opacity={0.4} />
       )}
 
       {/* Node circle */}
-      <circle cx={cx} cy={cy} r={r} fill={colors.fill} stroke={colors.stroke} strokeWidth={2} />
+      <circle cx={cx} cy={cy} r={r} fill={colors.fill} stroke={colors.stroke}
+        strokeWidth={2.5} />
 
-      {/* Label — split across 2 lines if needed */}
-      <text
-        x={cx}
-        y={cy}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontSize={label.length > 12 ? 10 : 12}
-        fontWeight={600}
-        fill={colors.text}
-      >
+      {/* Node shadow/glow */}
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={colors.stroke}
+        strokeWidth={1} opacity={0.15} />
+
+      {/* Label */}
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+        fontSize={11} fontWeight={600} fill={colors.text}
+        style={{ letterSpacing: '0.01em' }}>
         {label.length > 14 ? (
           <>
             <tspan x={cx} dy="-0.5em">{label.slice(0, Math.ceil(label.length / 2))}</tspan>
             <tspan x={cx} dy="1.2em">{label.slice(Math.ceil(label.length / 2))}</tspan>
           </>
         ) : (
-          label
+          label.replace('_', ' ')
         )}
       </text>
     </g>
@@ -284,21 +301,10 @@ function StateNode({
 }
 
 function Arrow({
-  x1,
-  y1,
-  x2,
-  y2,
-  label,
-  r,
+  x1, y1, x2, y2, r,
 }: {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  label: string;
-  r: number;
+  x1: number; y1: number; x2: number; y2: number; r: number;
 }) {
-  // Trim line endpoints to the node edge
   const dx = x2 - x1;
   const dy = y2 - y1;
   const len = Math.sqrt(dx * dx + dy * dy);
@@ -321,25 +327,36 @@ function Arrow({
   const d = `M ${sx} ${sy} Q ${ctrlX} ${ctrlY} ${ex} ${ey}`;
 
   return (
-    <g>
-      <path d={d} fill="none" stroke="var(--color-neutral-400)" strokeWidth={1.5} markerEnd="url(#arrowhead)" />
-      <text
-        x={ctrlX}
-        y={ctrlY - 6}
-        textAnchor="middle"
-        fontSize={9}
-        fill="var(--color-neutral-500)"
-        style={{ fontFamily: 'var(--font-mono)' }}
-      >
-        {label.length > 18 ? label.slice(0, 18) + '…' : label}
-      </text>
-    </g>
+    <path
+      d={d}
+      fill="none"
+      stroke="var(--color-slate-400)"
+      strokeWidth={1.5}
+      markerEnd="url(#arrowhead)"
+    />
   );
 }
 
 // ============================================================================
 // Table sub-components
 // ============================================================================
+
+function TableHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h4
+      style={{
+        fontSize: 'var(--text-xs)',
+        fontWeight: 600,
+        color: 'var(--color-slate-500)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+        marginBottom: 'var(--space-3)',
+      }}
+    >
+      {children}
+    </h4>
+  );
+}
 
 function MetadataRow({ fsm }: { fsm: HybridFSM }) {
   return (
@@ -349,20 +366,33 @@ function MetadataRow({ fsm }: { fsm: HybridFSM }) {
         flexWrap: 'wrap',
         gap: 'var(--space-6)',
         fontSize: 'var(--text-sm)',
-        color: 'var(--color-neutral-600)',
+        color: 'var(--color-slate-600)',
       }}
     >
       <div>
-        <strong>FSM ID</strong>{' '}
-        <code style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+        <span style={{ fontWeight: 500, color: 'var(--color-slate-500)' }}>
+          Obligation ID
+        </span>{' '}
+        <code
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-slate-700)',
+          }}
+        >
           {fsm.fsm_id}
         </code>
       </div>
       <div>
-        <strong>Circular</strong> {fsm.circular_ref}
+        <span style={{ fontWeight: 500, color: 'var(--color-slate-500)' }}>
+          Circular
+        </span>{' '}
+        <span>{fsm.circular_ref}</span>
       </div>
       <div>
-        <strong>Initial</strong>{' '}
+        <span style={{ fontWeight: 500, color: 'var(--color-slate-500)' }}>
+          Initial State
+        </span>{' '}
         <span className="badge badge--pending">{fsm.initial_state}</span>
       </div>
     </div>
@@ -371,74 +401,64 @@ function MetadataRow({ fsm }: { fsm: HybridFSM }) {
 
 function TransitionTable({ transitions }: { transitions: FSMTransition[] }) {
   return (
-    <div>
-      <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 600, marginBottom: 'var(--space-3)' }}>
-        Transitions ({transitions.length})
-      </h3>
-      <div style={{ overflowX: 'auto' }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>From</th>
-              <th>To</th>
-              <th>Trigger Event</th>
-              <th>Conditions</th>
+    <div style={{ overflowX: 'auto' }}>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>From</th>
+            <th>To</th>
+            <th>Trigger Event</th>
+            <th>Conditions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {transitions.map((t, i) => (
+            <tr key={i}>
+              <td><StateBadge name={t.from_state} /></td>
+              <td><StateBadge name={t.to_state} /></td>
+              <td><code style={{ fontSize: 'var(--text-xs)' }}>{t.trigger_event}</code></td>
+              <td>
+                {t.conditions ? (
+                  <code style={{ fontSize: 'var(--text-2xs)' }}>
+                    {JSON.stringify(t.conditions)}
+                  </code>
+                ) : (
+                  <span style={{ color: 'var(--color-slate-400)' }}>—</span>
+                )}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {transitions.map((t, i) => (
-              <tr key={i}>
-                <td><StateBadge name={t.from_state} /></td>
-                <td><StateBadge name={t.to_state} /></td>
-                <td><code>{t.trigger_event}</code></td>
-                <td>
-                  {t.conditions ? (
-                    <code style={{ fontSize: 'var(--text-xs)' }}>
-                      {JSON.stringify(t.conditions)}
-                    </code>
-                  ) : (
-                    <span style={{ color: 'var(--color-neutral-400)' }}>—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 function TimelineRulesTable({ rules }: { rules: TimelineRule[] }) {
   return (
-    <div>
-      <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 600, marginBottom: 'var(--space-3)' }}>
-        Timeline Rules ({rules.length})
-      </h3>
-      <div style={{ overflowX: 'auto' }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Start Event</th>
-              <th>Deadline</th>
-              <th>Grace Period</th>
-              <th>Unit</th>
-              <th>Overdue →</th>
+    <div style={{ overflowX: 'auto' }}>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Start Event</th>
+            <th>Deadline</th>
+            <th>Grace Period</th>
+            <th>Unit</th>
+            <th>Overdue →</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rules.map((r, i) => (
+            <tr key={i}>
+              <td><code style={{ fontSize: 'var(--text-xs)' }}>{r.start_event}</code></td>
+              <td><span style={{ fontWeight: 600 }}>T+{r.deadline_offset}</span></td>
+              <td>{r.grace_period > 0 ? `+${r.grace_period}` : '—'}</td>
+              <td>{r.time_unit}</td>
+              <td><StateBadge name={r.overdue_transition} /></td>
             </tr>
-          </thead>
-          <tbody>
-            {rules.map((r, i) => (
-              <tr key={i}>
-                <td><code>{r.start_event}</code></td>
-                <td>T+{r.deadline_offset}</td>
-                <td>{r.grace_period > 0 ? `+${r.grace_period}` : '—'}</td>
-                <td>{r.time_unit}</td>
-                <td><StateBadge name={r.overdue_transition} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -449,17 +469,19 @@ function StateBadge({ name }: { name: string }) {
     <span
       style={{
         display: 'inline-block',
-        padding: '0.1em 0.5em',
-        fontSize: 'var(--text-xs)',
+        padding: '0.1em 0.55em',
+        fontSize: 'var(--text-2xs)',
         fontWeight: 600,
-        backgroundColor: colors.fill,
+        background: colors.fill,
         color: colors.text,
         border: `1px solid ${colors.stroke}`,
         borderRadius: 'var(--radius-sm)',
         whiteSpace: 'nowrap',
+        textTransform: 'uppercase',
+        letterSpacing: '0.03em',
       }}
     >
-      {name}
+      {name.replace(/_/g, ' ')}
     </span>
   );
 }

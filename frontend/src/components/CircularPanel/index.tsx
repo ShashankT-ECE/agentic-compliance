@@ -77,7 +77,7 @@ export default function CircularPanel({
 
           {run.total_fsms > 0 && (
             <div style={{ display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
-              <MiniStat label="Total FSMs" value={run.total_fsms} />
+              <MiniStat label="Total Obligations" value={run.total_fsms} />
               <MiniStat label="Pending" value={run.pending} tone="warn" />
               <MiniStat label="Approved" value={run.approved} tone="ok" />
               <MiniStat label="Rejected" value={run.rejected} tone="bad" />

@@ -655,6 +655,82 @@ class TestParseCircular:
 # ====================================================================
 
 
+class TestDeepSeekTruncationRecovery:
+    """Regression tests for truncated JSON recovery from real LLM responses.
+
+    When max_tokens is insufficient or the model output is cut off,
+    the parser must salvage as many complete clause objects as possible
+    rather than failing entirely.
+    """
+
+    def test_recovers_complete_objects_from_truncated_array(self):
+        """Realistic DeepSeek v4 Pro truncated response — recover 2 of 3 clauses."""
+        truncated = (
+            '[\n'
+            '  {\n'
+            '    "clause_id": "C-1",\n'
+            '    "circular_ref": "SEBI/2025/57",\n'
+            '    "clause_text": "The TMs/CMs shall collect margins by settlement day.",\n'
+            '    "obligation_type": "timeline",\n'
+            '    "timeline_params": {"offset": 1, "grace_period": 0, "unit": "days"},\n'
+            '    "effective_date": "2025-04-28",\n'
+            '    "applicable_entities": ["trading_member"]\n'
+            '  },\n'
+            '  {\n'
+            '    "clause_id": "C-2",\n'
+            '    "circular_ref": "SEBI/2025/57",\n'
+            '    "clause_text": "The VaR margins shall be collected in advance of trade.",\n'
+            '    "obligation_type": "procedure",\n'
+            '    "timeline_params": null,\n'
+            '    "effective_date": "2025-04-28",\n'
+            '    "applicable_entities": ["trading_member"]\n'
+            '  },\n'
+            '  {\n'
+            '    "clause_id": "C-3",\n'
+            '    "circular_ref": "SEBI/2025/57",\n'
+            '    "clause_text": "Make necessary amendments to the relevant'  # truncated!
+        )
+        from app.pipeline.nodes.parser import _extract_json_from_response
+
+        result = _extract_json_from_response(truncated)
+        assert len(result) == 2, f"Expected 2 recovered clauses, got {len(result)}"
+        assert result[0]["clause_id"] == "C-1"
+        assert result[1]["clause_id"] == "C-2"
+
+    def test_truncated_mid_key_returns_nothing(self):
+        """If no complete top-level object exists, the parser must still raise."""
+        from app.pipeline.nodes.parser import _extract_json_from_response
+
+        with pytest.raises(ValueError, match="valid JSON array"):
+            _extract_json_from_response('[{"clause_id": "C-1", "clau')
+
+    def test_truncated_array_recovery_returns_list(self):
+        """Recovered data must be a list, not a dict or other type."""
+        truncated = (
+            '[\n'
+            '  {"clause_id": "C-1", "clause_text": "test obligation text", '
+            '"obligation_type": "timeline"}\n'
+        )
+        from app.pipeline.nodes.parser import _extract_json_from_response
+
+        result = _extract_json_from_response(truncated)
+        assert isinstance(result, list), f"Expected list, got {type(result).__name__}"
+        assert len(result) == 1
+        assert result[0]["clause_id"] == "C-1"
+
+    def test_complete_response_still_works(self):
+        """A complete JSON array must still parse normally (no regression)."""
+        complete = (
+            '[{"clause_id": "C-1", "clause_text": "test obligation text here", '
+            '"obligation_type": "timeline", "applicable_entities": ["trading_member"]}]'
+        )
+        from app.pipeline.nodes.parser import _extract_json_from_response
+
+        result = _extract_json_from_response(complete)
+        assert len(result) == 1
+        assert result[0]["clause_id"] == "C-1"
+
+
 class TestMockLLMClient:
     """Tests for MockLLMClient used in parser tests."""
 

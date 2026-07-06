@@ -29,5 +29,8 @@ backend/data/extracted/
 backend/data/locked_fsms/
 !backend/data/**/.gitkeep
 
+# Debug artifacts
+backend/debug/
+
 # Docker
 docker-data/

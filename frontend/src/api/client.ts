@@ -35,7 +35,7 @@ export interface HashChain {
 }
 
 // ============================================================================
-// FSM models (mirrors backend models/fsm.py)
+// Compliance obligation models (mirrors backend models/fsm.py)
 // ============================================================================
 
 export interface FSMState {

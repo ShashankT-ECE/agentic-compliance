@@ -88,10 +88,10 @@ export interface ComplianceState {
   /** The currently-selected pipeline run's full result (verdicts + scoreboard). */
   currentResult: PipelineResult | null;
 
-  /** Runs that have FSMs waiting for human review. */
+  /** Runs that have compliance obligations waiting for human review. */
   hitlRuns: HitlRunSummary[];
 
-  /** FSMs pending review for the currently-focused HITL run. */
+  /** Compliance obligations pending review for the currently-focused HITL run. */
   hitlQueue: LockedFSM[];
 
   /** Paginated telemetry events from the most recent query. */
@@ -129,7 +129,7 @@ export interface ComplianceState {
   /** Load the HITL review queue. Optionally narrow to a specific run. */
   fetchHitlList: (runId?: string) => Promise<void>;
 
-  /** Approve a single FSM at the HITL gate. */
+  /** Approve a single compliance obligation at the HITL gate. */
   approveFsm: (
     fsmId: string,
     runId: string,
@@ -137,7 +137,7 @@ export interface ComplianceState {
     comments?: string,
   ) => Promise<boolean>;
 
-  /** Reject a single FSM at the HITL gate. */
+  /** Reject a single compliance obligation at the HITL gate. */
   rejectFsm: (
     fsmId: string,
     runId: string,
@@ -145,7 +145,7 @@ export interface ComplianceState {
     comments: string,
   ) => Promise<boolean>;
 
-  /** Amend (correct and re-submit) a single FSM at the HITL gate. */
+  /** Amend (correct and re-submit) a single compliance obligation at the HITL gate. */
   amendFsm: (
     fsmId: string,
     runId: string,
@@ -154,7 +154,7 @@ export interface ComplianceState {
     correctedFsm: Record<string, unknown>,
   ) => Promise<boolean>;
 
-  /** Resume a paused pipeline after all FSMs are reviewed. */
+  /** Resume a paused pipeline after all compliance obligations are reviewed. */
   resumePipeline: (runId: string) => Promise<ResumeResponse | null>;
 
   /** Ingest broker telemetry events. Returns the ingest summary. */

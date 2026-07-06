@@ -1284,6 +1284,159 @@ class TestHitlListFix:
             f"Expected {state.run_id} in HITL list, got {ids}"
         )
 
+    @pytest.mark.asyncio
+    async def test_hitl_list_excludes_deleted_runs(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """Deleting a run from disk must remove it from the HITL queue."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        _reset_all_stores()
+
+        llm = MultiMockLLMClient(PARSER_RESPONSE, FSM_RESPONSE)
+        runner = PipelineRunner(llm_client=llm)
+        from app.api.deps import set_runner
+        set_runner(runner)
+
+        state = await runner.start(
+            circular_path=str(demo_circular_path),
+            circular_id=CIRCULAR_REF,
+            telemetry_events=list(demo_telemetry_events),
+        )
+
+        client = TestClient(app)
+
+        # Confirm the run appears
+        resp = client.get("/api/pipeline/hitl")
+        ids = [r["run_id"] for r in resp.json()["runs"]]
+        assert state.run_id in ids
+
+        # Delete the run directory from disk
+        from app.api.routes.pipeline import _get_data_dir
+        import shutil
+        run_dir = _get_data_dir() / state.run_id
+        assert run_dir.exists()
+        shutil.rmtree(run_dir)
+        assert not run_dir.exists()
+
+        # HITL list must no longer include the deleted run
+        resp = client.get("/api/pipeline/hitl")
+        ids_after = [r["run_id"] for r in resp.json()["runs"]]
+        assert state.run_id not in ids_after, (
+            f"Deleted run {state.run_id} still appears in HITL list: {ids_after}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_hitl_list_ignores_empty_directories(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """Empty or orphaned directories must not appear in the HITL list."""
+        from app.api.routes.pipeline import _get_data_dir
+
+        # Create an empty directory (no LOCKED-*.json files)
+        empty_dir = _get_data_dir() / "orphaned-empty-dir"
+        empty_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            from fastapi.testclient import TestClient
+            from app.main import app
+
+            _reset_all_stores()
+
+            llm = MultiMockLLMClient(PARSER_RESPONSE, FSM_RESPONSE)
+            runner = PipelineRunner(llm_client=llm)
+            from app.api.deps import set_runner
+            set_runner(runner)
+
+            await runner.start(
+                circular_path=str(demo_circular_path),
+                circular_id=CIRCULAR_REF,
+                telemetry_events=list(demo_telemetry_events),
+            )
+
+            client = TestClient(app)
+            resp = client.get("/api/pipeline/hitl")
+            ids = [r["run_id"] for r in resp.json()["runs"]]
+            assert "orphaned-empty-dir" not in ids, (
+                f"Empty directory appears in HITL list: {ids}"
+            )
+        finally:
+            import shutil
+            shutil.rmtree(empty_dir, ignore_errors=True)
+
+    @pytest.mark.asyncio
+    async def test_hitl_list_excludes_fully_approved_runs(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """Runs with zero pending obligations must not appear in the HITL list."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+
+        _reset_all_stores()
+
+        llm = MultiMockLLMClient(PARSER_RESPONSE, FSM_RESPONSE)
+        runner = PipelineRunner(llm_client=llm)
+        from app.api.deps import set_runner
+        set_runner(runner)
+
+        state = await runner.start(
+            circular_path=str(demo_circular_path),
+            circular_id=CIRCULAR_REF,
+            telemetry_events=list(demo_telemetry_events),
+        )
+
+        client = TestClient(app)
+
+        # Approve all FSMs
+        locked = _load_locked_fsms_from_disk(state.run_id)
+        for lfsm in locked:
+            approved = _make_approved_fsm(lfsm)
+            from app.pipeline.nodes.hitl_gate import persist_locked_fsms
+            persist_locked_fsms([approved], state.run_id)
+
+        # Now re-count pending from files — should be 0
+        resp = client.get("/api/pipeline/hitl")
+        ids = [r["run_id"] for r in resp.json()["runs"]]
+        # After _pipeline_state.json is stale, the fix re-counts from file statuses
+        # All approved means no pending, so run should drop from list
+        assert state.run_id not in ids, (
+            f"Fully approved run should NOT appear in HITL list, got: {ids}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_hitl_list_is_disk_authoritative(
+        self, demo_circular_path: Path, demo_telemetry_events: list[TelemetryEvent],
+    ):
+        """Stale in-memory runs must NOT leak into the HITL list."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.pipeline.runner import _set_store, RunRecord
+        from app.pipeline.state import CompliancePipelineState, PipelineStatus
+
+        # Seed the in-memory store with a fake run that has NO disk counterpart
+        _reset_all_stores()
+        from datetime import datetime, timezone
+        fake_state = CompliancePipelineState(
+            run_id="stale-memory-only-run",
+            circular_id="STALE-CIRCULAR",
+            telemetry_events=[],
+            metadata={"started_at": datetime.now(timezone.utc).isoformat()},
+        )
+        fake_state.status = PipelineStatus.AWAITING_APPROVAL
+        _set_store({
+            "stale-memory-only-run": RunRecord(
+                state=fake_state,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            ),
+        })
+
+        client = TestClient(app)
+        resp = client.get("/api/pipeline/hitl")
+        ids = [r["run_id"] for r in resp.json()["runs"]]
+        assert "stale-memory-only-run" not in ids, (
+            f"Stale in-memory run leaked into HITL list: {ids}"
+        )
+
 
 class TestCountFsmsFix:
     """Regression tests for _count_fsms() using .value instead of str() (RC #6)."""

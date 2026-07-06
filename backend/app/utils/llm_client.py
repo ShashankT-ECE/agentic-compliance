@@ -108,7 +108,7 @@ class DeepSeekClient(LLMClient):
                 {"role": "user", "content": user_message},
             ],
             "temperature": temperature,
-            "max_tokens": 4096,
+            "max_tokens": 16384,
         }
 
         headers: dict[str, str] = {
