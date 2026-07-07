@@ -31,7 +31,7 @@ PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evalu
 - **Node 1 (PDF Parser)**: LLM-assisted — extracts structured obligation clauses from circular PDFs. Uses DeepSeek v4 Pro with 16384 max_tokens + truncation recovery.
 - **Node 2 (FSM Extractor)**: LLM-assisted — transforms parsed clauses into HybridFSM representations.
 - **HITL Gate**: Deterministic — human reviews/approves/rejects/amends extracted FSMs before evaluation.
-- **Node 3 (Assertion Evaluator)**: Strictly deterministic — matches telemetry against approved LockedFSMs. **No LLM allowed.** AST-verified. V1.0.2: `determine_compliance_status()` trusts FSM `current_state`.
+- **Node 3 (Assertion Evaluator)**: Strictly deterministic — matches telemetry against approved LockedFSMs. **No LLM allowed.** AST-verified. V1.0.2: `determine_compliance_status()` trusts FSM `current_state`; `overdue_transition` from timeline rules fed back into FSM via `transition_to()`.
 - **Node 4 (Scoreboard Generator)**: Formatting only — aggregates verdicts into the audit scoreboard with SHA-256 hash-chain integrity.
 - **Node 5 (Orchestration)**: LangGraph DAG + FastAPI REST API with 13 endpoints.
 - **Frontend**: React 19 + TypeScript + Vite + Zustand dashboard with pipeline trigger, HITL review, compliance reports, workflow visualization, and telemetry table.
@@ -53,7 +53,7 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 | M8 | Frontend Dashboard | ✅ Complete |
 | M9 | End-to-End Demo & Final Validation | ✅ Complete |
 | V1.0.1 | Interactive Demo Fixes + Enterprise UI | ✅ Complete (committed `8845e8a`) |
-| V1.0.2 | Final Demo Polish + Evaluator Fix | ⬅ In working tree (5 files uncommitted) |
+| V1.0.2 | Final Demo Polish + Evaluator Fix + Explanation UX | ⬅ In working tree (9 files uncommitted) |
 | V2 | Production Hardening | ⬅ NEXT after V1 freeze |
 
 ## Scope
@@ -69,7 +69,9 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 - Interactive browser demo via HITL review page.
 - Real DeepSeek v4 Pro API integration with truncation recovery.
 - 37 integration tests validating the full pipeline flow.
-- 404 total tests.
+- 410 total tests.
+- Deterministic explanation column in audit reports (derived from evidence trail).
+- Timeline overdue transitions integrated into FSM evaluation (state/status consistency).
 
 ## Important Constraints
 
@@ -127,11 +129,11 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 
 Both use Claude Code with the DeepSeek API. Work is asynchronous — no scheduled sessions.
 
-## Git Branches (as of 2026-07-07)
+## Git Branches (as of 2026-07-08)
 
 | Branch | Status | Notes |
 |--------|--------|-------|
-| `dev` | ✅ Active | V1.0.1 committed (`8845e8a`). Two newer commits (`a1ee2ee`, `2bcc1ec`). V1.0.2 fixes in working tree (5 files). |
+| `dev` | ✅ Active | V1.0.1 committed (`8845e8a`). Three newer memory-sync commits (`a1ee2ee`, `2bcc1ec`, `e533cff`). V1.0.2 fixes in working tree (9 files uncommitted). |
 | `backup-m5` | ⚠️ Stale | Early-development stubs, 27 commits behind dev, do NOT merge |
 | `docs-memory-sync` | ✅ Synced | Fast-forwarded to dev |
 | `docs-v1-complete` | ✅ Synced | Fast-forwarded to dev |

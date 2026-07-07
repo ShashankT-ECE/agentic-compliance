@@ -7,9 +7,9 @@
 
 ## Overall Completion
 
-**V1.0.1 COMPLETE + PUSHED** — All M0–M9 milestones + interactive demo fixes + enterprise UI polish committed. 404 tests passing.
+**V1.0.1 COMPLETE + PUSHED** — All M0–M9 milestones + interactive demo fixes + enterprise UI polish committed. 410 tests passing.
 
-**V1.0.2 in working tree** — Dashboard sync fix, workflow diagram redesign, terminology cleanup, evaluator status fix, report formula fix. 5 uncommitted files.
+**V1.0.2 IN WORKING TREE** — 9 files uncommitted. Functionally complete, 1 UX blocker pending (explanation column renders "—" in browser).
 
 ---
 
@@ -19,7 +19,7 @@
 - [x] API routes — pipeline trigger, status, result — ✅ M7
 - [x] API routes — HITL review (approve/reject/amend) — ✅ M4/M7
 - [x] API routes — telemetry ingest and query — ✅ M7
-- [x] API routes — compliance reports — ✅ M7 → ✅ V1.0.2 (compliance_pct formula fix)
+- [x] API routes — compliance reports — ✅ M7 → ✅ V1.0.2 (compliance_pct formula fix, explanation derivation)
 - [x] API routes — pipeline resume (`POST /{run_id}/resume`) — ✅ V1.0.1
 - [x] API dependency injection (`deps.py`) — ✅ M7
 - [x] Data models — obligations (`models/obligation.py`) — ✅ M0
@@ -32,7 +32,7 @@
 - [x] Utility — hash chain integrity (`utils/hash_chain.py`) — ✅ M3
 - [x] Utility — LLM client (`utils/llm_client.py`) — ✅ M1 → ✅ V1.0.1 (max_tokens=16384)
 - [x] Utility — telemetry generation (`utils/telemetry_gen.py`) — ✅ M5
-- [x] Utility — state machine engine (`utils/state_machine.py`) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status fix)
+- [x] Utility — state machine engine (`utils/state_machine.py`) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status fix + transition_to)
 - [x] Utility — timeline evaluator (`utils/timeline_evaluator.py`) — ✅ M5
 - [x] Pipeline — state schema (`pipeline/state.py`) — ✅ M0
 - [x] Pipeline — graph orchestration (`pipeline/graph.py`) — ✅ M7
@@ -40,7 +40,7 @@
 - [x] Node 1 — PDF Parser (`pipeline/nodes/parser.py`) — ✅ M1 → ✅ V1.0.1 (truncation recovery)
 - [x] Node 2 — FSM Extractor (`pipeline/nodes/fsm_extractor.py`) — ✅ M2 → ✅ V1.0.1 (data path fix)
 - [x] HITL Gate — (`pipeline/nodes/hitl_gate.py`) — ✅ M4 → ✅ V1.0.1 (data path fix)
-- [x] Node 3 — Assertion Evaluator (`pipeline/nodes/evaluator.py`) — ✅ M5
+- [x] Node 3 — Assertion Evaluator (`pipeline/nodes/evaluator.py`) — ✅ M5 → ✅ V1.0.2 (overdue transition integration)
 - [x] Node 4 — Scoreboard Generator (`pipeline/nodes/scoreboard.py`) — ✅ M6
 - [ ] Database connection & migrations — V2
 
@@ -50,14 +50,14 @@
 - [x] Dependencies installed — ✅ M8
 - [x] TypeScript strict mode configured — ✅ M8
 - [x] `App.tsx` + `App.css` — layout, routing, enterprise design system — ✅ M8 → ✅ V1.0.1 (CSS rewrite)
-- [x] `api/client.ts` — typed fetch client (12 endpoints + resume) — ✅ M8 → ✅ V1.0.1
+- [x] `api/client.ts` — typed fetch client (12 endpoints + resume) — ✅ M8 → ✅ V1.0.1 → ✅ V1.0.2 (explanation field)
 - [x] `store/useComplianceStore.ts` — Zustand store (12 actions + resume) — ✅ M8 → ✅ V1.0.1
 - [x] Dashboard page (`pages/index.tsx`) — ✅ M8 → ✅ V1.0.1 → ✅ V1.0.2 (sync fix in working tree)
 - [x] Report page (`pages/report.tsx`) — ✅ M8
 - [x] HITL review page (`pages/hitl.tsx`) — ✅ V1.0.1 → ✅ V1.0.2 (onReviewed sync in working tree)
 - [x] CircularPanel component — ✅ M8
 - [x] FSMViewer component — ✅ M8 → ✅ V1.0.1 (labels, no floating text) → ✅ V1.0.2 (linear layout in working tree)
-- [x] AuditReport component — ✅ M8
+- [x] AuditReport component — ✅ M8 → ✅ V1.0.2 (Explanation column)
 - [x] TelemetryTable component — ✅ M8
 - [ ] Frontend unit/component tests — V2
 
@@ -77,7 +77,7 @@
 - [x] Node 1 — PDF Parser (LLM allowed) — ✅ M1 → ✅ V1.0.1
 - [x] Node 2 — FSM Extractor (LLM allowed) — ✅ M2 → ✅ V1.0.1
 - [x] HITL Gate (deterministic, no LLM) — ✅ M4 → ✅ V1.0.1
-- [x] Node 3 — Assertion Evaluator (LLM strictly prohibited) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status fix)
+- [x] Node 3 — Assertion Evaluator (LLM strictly prohibited) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status fix + overdue transition integration)
 - [x] Node 4 — Scoreboard Generator (formatting only) — ✅ M6
 
 ## Testing
@@ -87,56 +87,38 @@
 - [x] `test_fsm.py` — 34 tests — ✅ M2
 - [x] `test_hash_chain.py` — 20 tests — ✅ M3
 - [x] `test_hitl.py` — 46 tests — ✅ M4 → ✅ V1.0.1 (monkeypatch fix)
-- [x] `test_evaluator.py` — 69 tests — ✅ M5 → ✅ V1.0.2 (determine_compliance_status tests still pass with new logic)
+- [x] `test_evaluator.py` — 75 tests (69 original + 6 new) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status + transition_to + overdue integration)
 - [x] `test_scoreboard.py` — 38 tests — ✅ M6
 - [x] `test_orchestration.py` — 53 tests — ✅ M7
-- [x] `test_integration.py` — 37 tests (26 original + 7 resume + 4 HITL list) — ✅ M9 → ✅ V1.0.1
+- [x] `test_integration.py` — 37 tests — ✅ M9 → ✅ V1.0.1
 - [ ] Frontend tests — V2
 - [ ] CI automation — V2
 
-**Suite total**: **404 tests — 404 passed, 0 failed**
+**Suite total**: **410 tests — 410 passed, 0 failed**
 
 ## V1.0.1 — Interactive Demo Fixes + Enterprise UI
 
 - [x] Root cause diagnosis (8 bugs identified) — ✅
-- [x] `.env` loading fix — ✅
-- [x] Resume endpoint (`POST /{run_id}/resume`) — ✅
-- [x] HITL review page — ✅
-- [x] Disk-authoritative HITL list — ✅
-- [x] `get_pipeline_status` disk fallback — ✅
-- [x] `_count_fsms()` enum fix — ✅
-- [x] Telemetry merge on resume — ✅
-- [x] Dashboard status sync via resume action — ✅
-- [x] Data path resolution fix (backend/app/data → backend/data) — ✅
-- [x] `.gitignore` pattern fix (`/*` → `/`) — ✅
-- [x] `test_hitl.py` mutation fix — ✅
-- [x] `HitlListResponse` model fix — ✅
-- [x] `AmendAction` type fix — ✅
-- [x] Resume completed-run guard — ✅
-- [x] Parser `max_tokens` 4096 → 16384 — ✅
-- [x] Parser truncation recovery (Attempt 4) — ✅
-- [x] Regression tests (7 resume + 4 HITL list + 4 parser) — ✅
+- [x] All 8 fixes applied — ✅
 - [x] Enterprise CSS redesign — ✅
-- [x] FSM → Compliance Obligation labels — ✅
-- [x] Floating transition labels removed — ✅
 - [x] Git commit `8845e8a` and push — ✅
-- [x] Branch synchronization (6 of 7 branches) — ✅
-- [x] HITL list rewrite (disk-authoritative, zero stale leaks) — ✅
-- [x] Real DeepSeek v4 Pro end-to-end verification — ✅
 
-## V1.0.2 — Final Demo Polish + Evaluator Fix (uncommitted)
+## V1.0.2 — Final Demo Polish + Evaluator Fix + UX (uncommitted)
 
-- [x] Dashboard state sync fix (onReviewed calls fetchHitlList + fetchStatus) — ✅ (working tree)
-- [x] Linear workflow diagram redesign (no overlapping arrows) — ✅ (working tree)
-- [x] FSM-XXXX → OBL-XXXX formatting — ✅ (working tree)
-- [x] Initial State → Current Status label — ✅ (working tree)
-- [x] **determine_compliance_status() fix** — trust self._current_state — ✅ (working tree, today)
-- [x] **Report compliance_pct formula fix** — match scoreboard — ✅ (working tree, today)
-- [x] Backend test suite (404 passed) — ✅
+- [x] Dashboard state sync fix — ✅ (working tree)
+- [x] Linear workflow diagram redesign — ✅ (working tree)
+- [x] Terminology cleanup (FSM → Obligation, State → Status) — ✅ (working tree)
+- [x] **determine_compliance_status() fix** — trust self._current_state — ✅ (working tree)
+- [x] **Report compliance_pct formula fix** — match scoreboard — ✅ (working tree)
+- [x] **Overdue transition integration** — timeline advances FSM via transition_to() — ✅ (working tree)
+- [x] 6 new tests (transition_to unit + overdue integration) — ✅ (working tree)
+- [x] **Explanation column** — deterministic explanation from evidence — ✅ (working tree)
+- [x] Backend test suite (410 passed) — ✅
 - [x] Frontend build (52 modules, zero errors) — ✅
-- [x] Live end-to-end API verification (non-compliant verdict confirmed) — ✅
-- [ ] Final manual browser demo — pending
-- [ ] Decide on demo fixture gap (3 FSMs still PENDING due to missing events) — pending
+- [x] In-process explanation verification (all 4 verdicts correct) — ✅
+- [-] **Browser verification of explanation column** — **BLOCKED: renders "—" for every row**
+- [ ] Diagnose and fix explanation column rendering — pending
+- [ ] Final browser end-to-end demo — pending
 - [ ] Clean stale runtime data — pending
 - [ ] Commit and push V1.0.2 — pending
 - [ ] Declare V1 frozen — pending
@@ -157,12 +139,12 @@
 ## Memory System
 
 - [x] `CLAUDE.md` — permanent operating manual
-- [x] `memory/current_task.md` — updated 2026-07-07
-- [x] `memory/progress.md` — updated 2026-07-07
-- [x] `memory/project_handoff.md` — updated 2026-07-07
-- [x] `memory/session_handoff.md` — updated 2026-07-07
-- [x] `memory/decision_log.md` — updated 2026-07-07
-- [x] `memory/graphify_handoff.md` — updated 2026-07-07
+- [x] `memory/current_task.md` — updated 2026-07-08
+- [x] `memory/progress.md` — updated 2026-07-08
+- [x] `memory/project_handoff.md` — updated 2026-07-08
+- [x] `memory/session_handoff.md` — updated 2026-07-08
+- [x] `memory/decision_log.md` — updated 2026-07-08
+- [x] `memory/graphify_handoff.md` — updated 2026-07-08
 - [x] `memory/project_roadmap.md` — unchanged (V2 scope)
 
 ## Documentation
@@ -185,9 +167,11 @@
 - [x] Compliance workflow visualization works
 - [x] Data integrity (hash chain) verifiable
 - [x] Tamper detection confirmed (4 attack vectors)
-- [x] Verdict statuses are now meaningful (non_compliant for missed deadlines)
+- [x] Verdict state/status consistency resolved (current_state reflects timeline advances)
 - [x] Report compliance percentage matches scoreboard formula
-- [ ] Final clean end-to-end demo — pending (fixture gap decision + stale data cleanup)
+- [x] Explanation column implemented (backend + frontend)
+- [-] Explanation column browser verification — **BLOCKED**
+- [ ] Final clean end-to-end demo — pending
 
 ---
 

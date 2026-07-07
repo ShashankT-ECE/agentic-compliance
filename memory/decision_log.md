@@ -188,6 +188,21 @@
 - **Rationale**: The old formula `compliant / total * 100` counted pending verdicts in the denominator, producing 0% even when nothing had been evaluated. The scoreboard correctly excluded pending verdicts. The inconsistency was confusing — the report and scoreboard should agree.
 - **Status**: Implemented in `reports.py` (V1.0.2 working tree).
 
+### 2026-07-08 — Timeline overdue_transition applied to StateMachine before verdict construction
+
+- **Decision**: `TimelineEvaluator.evaluate_timeline_rule()` already computed `overdue_transition` (e.g. `"LATE"`) when a deadline was missed, but the evaluator never consumed it. Added `StateMachine.transition_to(target_state, reason)` to synthetically advance the FSM, and integrated it in `_evaluate_single_fsm()` so that every timeline rule with `deadline_met=False` applies its `overdue_transition` before the verdict is built.
+- **Rationale**: The `deadline_met=False` override in `determine_compliance_status()` forced the canonical status to LATE → NON_COMPLIANT, but `sm.current_state` remained PENDING because the FSM's overdue transition was never called. This created a `State=PENDING / Status=NON_COMPLIANT` split that was audibly inconsistent. The `overdue_transition` field was designed for exactly this purpose — it just needed to be wired into the evaluator.
+- **Impact**: `ComplianceVerdict.current_state` now accurately reflects the FSM's post-timeline state (LATE, not PENDING). The two subsystems (event-driven FSM and time-driven timeline) are now properly integrated — timeline results feed back into the FSM rather than bypassing it. Evidence trail records `trigger="timeline_overdue"` so auditors can distinguish event-driven from timeline-driven transitions.
+- **Status**: Implemented in `state_machine.py` and `evaluator.py` (V1.0.2 working tree). 6 new tests.
+
+### 2026-07-08 — Deterministic explanation column for audit reports
+
+- **Decision**: Each verdict in the audit report now carries a human-readable `explanation` field derived from the existing `evidence` object. `_derive_explanation()` is a pure function — no LLM, no external state, deterministic. Displayed as an "Explanation" column in the frontend verdicts table.
+- **Rationale**: PENDING verdicts previously gave no indication why — users couldn't distinguish "this is a bug" from "this is correct — no matching telemetry events." The explanation (`"Awaiting start event 'circular_issued' — not found in telemetry data."`) makes the report self-explanatory without requiring an engineer to interpret FSM states and evidence trails.
+- **Alternatives considered**: Expandable detail rows (higher complexity, more clicks), tooltip on status badge (too hidden), separate "diagnostics" section (overkill for V1).
+- **Impact**: Backward compatible — `explanation` is optional on the TypeScript type. Reports generated before the change simply won't have the field. The explanation is stored in the in-memory `_report_store` alongside the verdict, so re-fetching the same report always returns the same explanation. No new API endpoints, no evaluator changes.
+- **Status**: Implemented in `reports.py`, `client.ts`, and `AuditReport/index.tsx` (V1.0.2 working tree). Browser verification pending — column renders but shows fallback "—" for all rows (root cause not yet diagnosed).
+
 ---
 
 ## Template for New Entries

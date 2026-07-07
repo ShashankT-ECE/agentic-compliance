@@ -6,103 +6,100 @@
 
 | Field | Value |
 |-------|-------|
-| **Date** | 2026-07-07 |
+| **Date** | 2026-07-08 |
 | **Developer** | Brad (Friend — Windows + WSL2) |
 | **Branch** | `dev` |
-| **Latest Commit** | `2bcc1ec` — test: isolate runtime persistence during integration tests |
-| **Repository State** | 5 files modified in working tree (3 V1.0.2 polish + 2 evaluator fixes). Nothing committed. |
-| **Overall Status** | **V1.0.1 COMMITTED + PUSHED** — V1.0.2 fixes complete, uncommitted |
+| **Latest Commit** | `e533cff` — docs: synchronize project memory after V1.0.2 investigation |
+| **Repository State** | 9 files modified in working tree. Nothing committed. Nothing pushed. |
+| **Overall Status** | **V1.0.1 COMMITTED + PUSHED** — V1.0.2 functionally complete, uncommitted — 1 UX blocker remaining |
+
+---
 
 ## What Was Done Today
 
-### Phase 1 — Diagnostic Investigation
+### Phase 3 — Browser Verification (continued from 2026-07-07)
 
-The user reported: generated report shows every verdict as `Status=PENDING`, `Compliance=0%`, even though FSM states changed during evaluation (one reached LATE).
+Full browser end-to-end walkthrough:
+1. Trigger pipeline → 4 FSMs extracted
+2. HITL review → all 4 approved
+3. Resume → evaluator → scoreboard → report
+4. Observed CL-01 and CL-02 both `LATE / NON_COMPLIANT` ✓
+5. Observed CL-03 and CL-04 both `PENDING / PENDING` ✓
 
-Investigation traced the full pipeline:
-1. Called `GET /api/pipeline/result/{run_id}` — all 4 verdicts had `status: "pending"` despite `current_state: "LATE"` on one.
-2. Called `GET /api/reports/{report_id}` — identical verdicts. Report faithfully mirrors backend.
-3. **Conclusion**: backend evaluator is the source — not the report or frontend.
+**Finding**: CL-01 displayed `State=PENDING, Status=NON_COMPLIANT` — the state/status split was still present.
 
-**Smoking gun** (VER-68C15CC86544):
-- `current_state: "LATE"` — FSM did transition (PENDING → LATE via `trade_executed`)
-- `status: "pending"` — wrong, should be `non_compliant` per the LATE→NON_COMPLIANT mapping
+### Phase 4 — Overdue Transition Integration
 
-### Phase 2 — Root Cause
+**Root cause**: `TimelineEvaluator.evaluate_timeline_rule()` correctly computed `overdue_transition: "LATE"` at `timeline_evaluator.py:329`, but this value was **never consumed** by the evaluator. Only `deadline_met` (a boolean) crossed the boundary from timeline evaluation to FSM evaluation. The `deadline_met=False` override in `determine_compliance_status()` forced the canonical status to LATE → NON_COMPLIANT, but `sm.current_state` remained PENDING because nothing ever called the FSM's overdue transition.
 
-**`StateMachine.determine_compliance_status()`** at `state_machine.py:164-202`:
+**Fix — 3 files changed**:
 
-```python
-# OLD CODE (buggy)
-def determine_compliance_status(self, deadline_met=None):
-    terminal = self.is_terminal           # False (LATE has grace_expired→NON_COMPLIANT)
-    has_transitions = self._transition_count > 0  # True
+1. **`backend/app/utils/state_machine.py`** (+49 lines): New `transition_to(target_state, reason="timeline_overdue")` method. Advances the FSM to a target state synthetically (no event trigger required). Records in history with `trigger="timeline_overdue"` so the evidence trail clearly shows the timeline evaluator drove the advance. Guards: no-op if already in target state; returns `False` if target state unknown.
 
-    if not terminal and not has_transitions:
-        return "PENDING"
-    if not terminal and has_transitions:
-        return "DUE"                      # ← returned DUE, maps to PENDING
-    ...
-```
+2. **`backend/app/pipeline/nodes/evaluator.py`** (+11 lines): In `_evaluate_single_fsm()`, after computing `timeline_results` and before `determine_compliance_status()`: for every timeline result with `deadline_met=False` and a valid `overdue_transition`, call `sm.transition_to(result["overdue_transition"], reason="timeline_overdue")`.
 
-The method re-derived canonical status from `(is_terminal, has_transitions, deadline_met)` instead of reading the FSM's actual `self._current_state`. When the FSM was in `LATE` (non-terminal, has outgoing transitions), it returned `DUE`, which `_map_status` converted to `PENDING`.
+3. **`backend/tests/test_evaluator.py`** (+128 lines): 6 new tests — 4 for `transition_to()` unit coverage, 2 for overdue-transition integration (including the exact CL-01 scenario: no event transitions + missed deadline → FSM advances to LATE).
 
-The `_map_status` function itself was correct (`LATE → NON_COMPLIANT`) — it was just never given `LATE` as input.
+**Result**: CL-01 now shows `current_state=LATE, status=non_compliant` — the `State=PENDING / Status=NON_COMPLIANT` split is resolved. CL-02 shows `PENDING → DUE` (event-driven via `trade_executed`) then `DUE → LATE` (timeline-driven via `timeline_overdue`). 410 tests pass.
 
-### Phase 3 — Fixes Applied
+### Phase 5 — Explanation Column (UX)
 
-**Fix 1: `backend/app/utils/state_machine.py`** — `determine_compliance_status()` rewritten to trust `self._current_state` as the canonical status. The FSM's transitions (including timeline-driven) are the source of truth. `deadline_met=False` still overrides to LATE regardless of FSM state (regulatory requirement: action completed after deadline counts as late).
+**Problem**: Report showed `CL-03: PENDING / PENDING` with no indication why. Users couldn't distinguish "this is a bug" from "this is correct — no matching events."
 
-**Fix 2: `backend/app/api/routes/reports.py`** — Report `compliance_pct` formula changed from `compliant / total * 100` to `compliant / (total - pending) * 100`, matching the scoreboard. When all are pending (evaluated=0), returns 100.0 ("nothing to fail yet").
+**User agreed to Option A**: Add a deterministic explanation string derived from the existing `evidence` object already present in each verdict. No new API endpoints, no evaluator logic changes, no breaking schema changes.
 
-### Phase 4 — Verification
+**Backend** — `backend/app/api/routes/reports.py` (+110 lines):
+- `_derive_explanation(verdict)` — pure function producing one sentence:
+  - **COMPLIANT**: `"All obligations met within deadline."`
+  - **NON_COMPLIANT**: `"Deadline missed: '{start_event}' occurred on {date} but required action was not completed in time."`
+  - **PENDING (start event missing)**: `"Awaiting start event '{start_event}' — not found in telemetry data."`
+  - **PENDING (no events)**: `"No matching telemetry events found for this obligation's transition triggers."`
+  - **PENDING (in progress)**: `"In progress: reached '{state}' — awaiting further events to reach a terminal state."`
+- `_serialize_verdict()` — attaches `explanation` key to the serialized dict.
 
-| Check | Result |
-|-------|--------|
-| Backend test suite | **404 passed, 0 failed** |
-| Frontend build | **52 modules, zero errors** |
-| Live end-to-end demo | Trigger → approve 4 FSMs → resume → completed |
-| Verdict CL-02 | `non_compliant` (was `pending` before fix) ✅ · timeline: start matched, deadline missed |
-| Verdicts CL-01, CL-03, CL-04 | `pending` (correct — no matching events in demo fixture) ✅ |
-| Scoreboard compliance_rate | 0.0 (= 0/1 evaluated) ✅ |
-| Report compliance_pct | 0.0 (= 0/1 evaluated, matches scoreboard) ✅ |
+**Frontend** — 3 files, +6 lines:
+- `client.ts`: `explanation?: string` on `ComplianceVerdict`
+- `AuditReport/index.tsx`: "Explanation" column (7th, between State and Evaluated)
 
-### Remaining PENDING Verdicts (Fixture Gap)
+**In-process verification**: `_derive_explanation()` produces correct explanations for all 4 verdicts when called directly in Python. 410 tests pass. Frontend builds clean.
 
-3 of 4 verdicts remain PENDING because the demo telemetry fixture lacks events matching their FSM transition triggers:
-- CL-01: trigger = `margin_collected` or `settlement_day_approaching` — fixture has neither; timeline start = `margin_call_issued` — not in fixture
-- CL-03: trigger = `bye_laws_amended` or `amendment_process_started` — fixture has neither; timeline start = `circular_issued` — not in fixture
-- CL-04: trigger = `dissemination_completed` or `dissemination_process_started` — fixture has neither; timeline start = `circular_issued` — not in fixture
+### Phase 6 — Browser Verification (Explanation Column)
 
-This is a **test-fixture coverage gap**, not an evaluator bug. The LLM-generated FSMs reference obligation-specific triggers that the generic demo telemetry doesn't include.
+**Observed**: The Explanation column renders — but every row displays `—` (the fallback for `undefined` explanation).
 
-## Uncommitted Working Tree
+**Session paused here** — root cause not yet determined. Possibilities:
+1. Backend `GET /api/reports/{report_id}` is not including `explanation` in serialized verdicts. The `_serialize_verdict()` call in `generate_report()` enriches the verdicts stored in `_report_store`, but if the report was generated from an older run stored before the code change, it won't have the field.
+2. Frontend component reads `v.explanation` but the API response doesn't include it (stale report from earlier run).
+
+---
+
+## Uncommitted Working Tree (9 files)
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `backend/app/utils/state_machine.py` | +47/-? | `determine_compliance_status()` fix (today) |
-| `backend/app/api/routes/reports.py` | +11/-? | Report formula alignment (today) |
-| `backend/app/api/routes/pipeline.py` | +56/-? | V1.0.2 dashboard sync fix (previous session) |
-| `frontend/src/components/FSMViewer/index.tsx` | ~483 changed | V1.0.2 linear workflow diagram (previous session) |
-| `frontend/src/pages/hitl.tsx` | +19/-? | V1.0.2 onReviewed sync fix (previous session) |
+| `backend/app/api/routes/pipeline.py` | +56 | V1.0.2 dashboard state sync |
+| `backend/app/api/routes/reports.py` | +121 | compliance_pct fix + explanation derivation |
+| `backend/app/pipeline/nodes/evaluator.py` | +11 | overdue transition integration |
+| `backend/app/utils/state_machine.py` | +96 | determine_compliance_status fix + transition_to() |
+| `backend/tests/test_evaluator.py` | +128 | 6 new tests for transition_to + overdue integration |
+| `frontend/src/api/client.ts` | +2 | explanation field on ComplianceVerdict |
+| `frontend/src/components/AuditReport/index.tsx` | +4 | Explanation column |
+| `frontend/src/components/FSMViewer/index.tsx` | ±483 | Linear workflow diagram redesign |
+| `frontend/src/pages/hitl.tsx` | +19 | onReviewed sync fix + terminology cleanup |
 
-## Remaining V1 Tasks (Before Freeze)
+---
 
-1. **Final manual browser demo** — confirm dashboard renders non-compliant verdicts correctly
-2. **Decide on fixture gap** — enrich demo telemetry to trigger all FSMs, or document as known limitation
-3. **Clean stale runtime data** — `rm -rf backend/data/locked_fsms/*`
-4. **Commit V1.0.2** — all 5 files with descriptive message
-5. **Push to origin**
-6. **Declare V1 frozen**
-7. **Begin V2 planning**
+## Blocker
 
-## Blockers
+**Explanation column shows "—" for every row in the browser.** Root cause not yet diagnosed.
 
-None. All V1 functional bugs are resolved. Remaining work is polish + fixture decisions.
+---
 
 ## Next Milestone
 
 **Freeze V1** → then **V2 — Production Hardening**
+
+---
 
 ## Startup Instructions
 
@@ -111,15 +108,18 @@ cd /home/bradha/agentic-compliance
 git checkout dev
 git pull origin dev
 
-# Kill any stale server
+# The working tree has 9 files with V1.0.2 changes
+# Check git diff --stat to see all changes
+
+# Kill stale server
 fuser -k 8000/tcp 2>/dev/null
 
 # Verify
 cd backend
 source .venv/bin/activate
-python -m pytest tests/ -v        # verify 404 tests pass
+python -m pytest tests/ -v        # 410 tests
 cd ../frontend
-npm run build                      # verify build succeeds
+npm run build                      # 52 modules
 
 # Start backend
 cd ../backend && source .venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
@@ -128,18 +128,10 @@ cd ../backend && source .venv/bin/activate && python -m uvicorn app.main:app --h
 cd ../frontend && npm run dev
 ```
 
-Then read memory files in order:
-1. `memory/project_handoff.md` — project overview
-2. `memory/progress.md` — 30-second status
-3. `memory/current_task.md` — exact resume point
-4. `memory/decision_log.md` — architectural decisions
-5. `memory/graphify_handoff.md` — pipeline graph topology
-6. This file — session history
-
 **CRITICAL RULES:**
 - Do not redesign M0–M9 — all milestones are independently verified
 - Propose and get V2 plan approved before any implementation
-- All 404 tests must continue to pass
+- All 410 tests must continue to pass
 - Node 3 safety gate (no LLM) must never be violated
 - Always restart the backend server after any code change
-- **Do NOT commit or push** until manual browser verification succeeds
+- **Do NOT commit or push** until the explanation column blocker is resolved
