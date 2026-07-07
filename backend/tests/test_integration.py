@@ -154,6 +154,32 @@ class MultiMockLLMClient(LLMClient):
 # Helpers
 # =============================================================================
 
+# ---------------------------------------------------------------------------
+# Test isolation — redirect all runtime data writes to temporary directories
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _redirect_test_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect all runtime data writes to temporary directories.
+
+    Integration tests must never write to ``backend/data/``.  This fixture
+    monkeypatches the module-level data directory constants in the HITL gate,
+    FSM extractor, and pipeline API routes so every ``persist_*()`` call and
+    disk read goes to a per-test temp directory.
+    """
+    locked_dir = tmp_path / "locked_fsms"
+    locked_dir.mkdir(exist_ok=True)
+    extracted_dir = tmp_path / "extracted"
+    extracted_dir.mkdir(exist_ok=True)
+
+    monkeypatch.setattr("app.pipeline.nodes.hitl_gate._LOCKED_DATA_DIR", locked_dir)
+    monkeypatch.setattr("app.api.routes.pipeline._LOCKED_DATA_DIR", locked_dir)
+    monkeypatch.setattr("app.pipeline.nodes.fsm_extractor._EXTRACTED_DATA_DIR", extracted_dir)
+
+    # tmp_path is auto-cleaned by pytest when the test function ends
+
+
 # Default data directory for locked FSMs (same as pipeline routes default)
 def _reset_all_stores() -> None:
     """Reset all in-memory stores before a test."""
