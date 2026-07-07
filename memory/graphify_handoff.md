@@ -1,7 +1,7 @@
 # Graphify Handoff
 
 > **Purpose**: Pipeline graph topology, state, and node/edge information for the Graphify visualization integration.
-> **Updated**: 2026-07-06 — V1.0.1 committed, V1.0.2 polish in working tree.
+> **Updated**: 2026-07-07 — V1.0.2 evaluator fix + report formula fix in working tree.
 
 ---
 
@@ -9,15 +9,15 @@
 
 **V1.0.1 COMMITTED + PUSHED.** All 5 pipeline nodes + HITL gate implemented and debugged. LangGraph StateGraph wired with conditional routing. FastAPI provides 13 REST endpoints (12 original + 1 resume). React dashboard renders all stages. Demo script validates full flow. Real DeepSeek v4 Pro API works end-to-end.
 
-**V1.0.2 in working tree**: Dashboard sync fixed, workflow diagram redesigned, terminology polished.
+**V1.0.2 in working tree (5 files modified)**: Dashboard sync fixed, workflow diagram redesigned, terminology polished, determine_compliance_status() fixed to trust FSM current state, report compliance_pct aligned with scoreboard formula.
 
 ---
 
-## Pipeline Topology (V1.0.1 State)
+## Pipeline Topology (V1.0.2 State)
 
 ```
 [Node 1: PDF Parser] ──→ [Node 2: FSM Extractor] ──→ [HITL Gate] ──→ [Node 3: Evaluator] ──→ [Node 4: Scoreboard]
-       ✅ M1                      ✅ M2                    ✅ M4              ✅ M5                   ✅ M6
+       ✅ M1                      ✅ M2                    ✅ M4              ✅ M5 → V1.0.2          ✅ M6
                                                            │
                                               ┌────────────┴────────────┐
                                               │                         │
@@ -39,6 +39,12 @@
 | **Demo** | `scripts/run_demo.sh` — in-process, MockLLMClient, deterministic |
 | **Tests** | 404 (68+39+34+20+46+69+38+53+37) — 0 failed |
 
+## Key V1.0.2 Change: Evaluator Status Logic
+
+Node 3's `StateMachine.determine_compliance_status()` was re-derived from structural properties (`is_terminal`, `has_transitions`) rather than reading `self._current_state`. This caused all verdicts to return PENDING even when the FSM had transitioned to LATE. Fixed to trust `self._current_state` with a `deadline_met=False` override for regulatory LATE escalation.
+
+See [[decision_log]] entries for 2026-07-07 for full details.
+
 ## Nodes
 
 | ID | Name | LLM? | Status | Input | Output |
@@ -46,7 +52,7 @@
 | 1 | PDF Parser | ✅ Yes | ✅ M1 → V1.0.1 | Circular PDF path | `List[ObligationClause]` |
 | 2 | FSM Extractor | ✅ Yes | ✅ M2 → V1.0.1 | `List[ObligationClause]` | `List[HybridFSM]` |
 | — | HITL Gate | ❌ Never | ✅ M4 → V1.0.1 | `List[HybridFSM]` | `List[LockedFSM]` (PENDING_REVIEW) |
-| 3 | Assertion Evaluator | ❌ Never | ✅ M5 | `List[LockedFSM]` + `List[TelemetryEvent]` | `List[ComplianceVerdict]` |
+| 3 | Assertion Evaluator | ❌ Never | ✅ M5 → V1.0.2 | `List[LockedFSM]` + `List[TelemetryEvent]` | `List[ComplianceVerdict]` |
 | 4 | Scoreboard Generator | Format only | ✅ M6 | `List[ComplianceVerdict]` | `Scoreboard` + `HashChain` |
 
 ## Edges
@@ -60,7 +66,7 @@
 | Node 3 | Node 4 | Always | ✅ M7 wired |
 | Node 4 | END | Always | ✅ M7 wired |
 
-## API Endpoints (V1.0.1)
+## API Endpoints (V1.0.2)
 
 | Method | Path | Node | Added |
 |--------|------|------|-------|
@@ -74,7 +80,7 @@
 | `POST` | `/api/pipeline/hitl/{fsm_id}/amend` | Amends obligation at HITL gate | M7 |
 | `POST` | `/api/telemetry/ingest` | Ingests broker telemetry | M7 |
 | `GET` | `/api/telemetry/query` | Queries ingested telemetry | M7 |
-| `GET` | `/api/reports/generate/{run_id}` | Generates audit report | M7 |
+| `GET` | `/api/reports/generate/{run_id}` | Generates audit report | M7 → **V1.0.2** (compliance_pct fix) |
 | `GET` | `/api/reports/{report_id}` | Retrieves stored report | M7 |
 | `GET` | `/health` | Health check | M7 |
 
@@ -97,7 +103,10 @@
 [locked_fsms: List[LockedFSM]] ← API-driven review (approve/reject/amend)
      │                            persist_locked_fsms() → data/locked_fsms/{run_id}/
      ▼ (on all-resolved)
-[evaluator_node()] → M5 — deterministic, no LLM, AST-verified
+[evaluator_node()] → M5 → V1.0.2 — deterministic, no LLM, AST-verified
+     │                     StateMachine.apply_events() → FSM transitions
+     │                     determine_compliance_status() trusts self._current_state
+     │                     _map_status(current_state) → VerdictStatus
      │
      ▼
 [compliance_verdicts: List[ComplianceVerdict]]
@@ -129,6 +138,17 @@ SEBI circular → ObligationClause → HybridFSM → LockedFSM
                                           verify_chain() ✓
 ```
 
+## Verdict Status Semantics (V1.0.2)
+
+| FSM Current State | canonical → VerdictStatus | Meaning |
+|---|---|---|
+| PENDING | → PENDING | Nothing started yet |
+| DUE | → PENDING | In progress, awaiting more events |
+| COMPLIANT | → COMPLIANT | All required actions on time |
+| LATE | → NON_COMPLIANT | Action done but after deadline |
+| NON_COMPLIANT | → NON_COMPLIANT | Deadline passed, no action |
+| Any + deadline_met=False | → LATE → NON_COMPLIANT | Timeline override |
+
 ## Graph Changes
 
 | Date | Change | Description |
@@ -142,6 +162,7 @@ SEBI circular → ObligationClause → HybridFSM → LockedFSM
 | 2026-07-04 | M9 complete | 26 integration tests, demo script, state bridge fix |
 | 2026-07-06 | V1.0.1 | 8 root causes fixed, resume endpoint, HITL review page, enterprise UI, parser robustness, disk-authoritative HITL list, 404 tests |
 | 2026-07-06 | V1.0.2 wip | Dashboard sync fix, linear workflow diagram, terminology polish |
+| 2026-07-07 | V1.0.2 evaluator fix | determine_compliance_status() trusts current_state; report compliance_pct aligned with scoreboard |
 
 ## Test Coverage
 
@@ -152,7 +173,7 @@ SEBI circular → ObligationClause → HybridFSM → LockedFSM
 | test_fsm.py | 34 | ✅ |
 | test_hash_chain.py | 20 | ✅ |
 | test_hitl.py | 46 | ✅ |
-| test_evaluator.py | 69 | ✅ |
+| test_evaluator.py | 69 | ✅ (determine_compliance_status tests still pass) |
 | test_scoreboard.py | 38 | ✅ |
 | test_orchestration.py | 53 | ✅ |
 | test_integration.py | 37 (+11 resume/list/status) | ✅ |

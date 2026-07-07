@@ -175,6 +175,19 @@
 - **Rationale**: The grid layout produced curved overlapping arrows when states were connected in non-grid patterns. A fixed layout matching the actual business workflow is clearer for compliance review.
 - **Status**: Implemented in `FSMViewer/index.tsx` (V1.0.2 working tree).
 
+### 2026-07-07 — determine_compliance_status() trusts FSM current state
+
+- **Decision**: `StateMachine.determine_compliance_status()` now returns `self._current_state` as the canonical status, rather than re-deriving it from `(is_terminal, has_transitions, deadline_met)`. The FSM's transitions — including timeline-driven overdue transitions — are the source of truth for where the machine landed. Only `deadline_met=False` overrides (to LATE).
+- **Rationale**: The old logic re-derived canonical status from structural properties (is_terminal, has_transitions) but ignored the FSM's actual current state. When the FSM reached LATE — which had an outgoing `grace_expired → NON_COMPLIANT` transition — the method saw "non-terminal + has transitions" and returned DUE, which mapped to PENDING. This caused ALL verdicts to display as PENDING regardless of the FSM's true state.
+- **Impact**: Verdicts now correctly show `non_compliant` when the FSM reaches LATE. The `current_state` and `status` fields are now consistent — `_map_status(LATE) → NON_COMPLIANT`. Regression tests (404) continue to pass. One previously-dormant verdict (CL-02) now correctly shows NON_COMPLIANT because its timeline rule detected a missed T+1 deadline.
+- **Status**: Implemented in `state_machine.py` (V1.0.2 working tree).
+
+### 2026-07-07 — Report compliance percentage matches scoreboard formula
+
+- **Decision**: Report `compliance_pct` now uses `compliant / (total - pending) * 100` (same as scoreboard's `compliance_rate`). When all verdicts are pending (evaluated=0), returns 100.0 ("nothing to fail yet").
+- **Rationale**: The old formula `compliant / total * 100` counted pending verdicts in the denominator, producing 0% even when nothing had been evaluated. The scoreboard correctly excluded pending verdicts. The inconsistency was confusing — the report and scoreboard should agree.
+- **Status**: Implemented in `reports.py` (V1.0.2 working tree).
+
 ---
 
 ## Template for New Entries

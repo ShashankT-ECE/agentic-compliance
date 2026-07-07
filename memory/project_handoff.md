@@ -31,7 +31,7 @@ PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evalu
 - **Node 1 (PDF Parser)**: LLM-assisted — extracts structured obligation clauses from circular PDFs. Uses DeepSeek v4 Pro with 16384 max_tokens + truncation recovery.
 - **Node 2 (FSM Extractor)**: LLM-assisted — transforms parsed clauses into HybridFSM representations.
 - **HITL Gate**: Deterministic — human reviews/approves/rejects/amends extracted FSMs before evaluation.
-- **Node 3 (Assertion Evaluator)**: Strictly deterministic — matches telemetry against approved LockedFSMs. **No LLM allowed.** AST-verified.
+- **Node 3 (Assertion Evaluator)**: Strictly deterministic — matches telemetry against approved LockedFSMs. **No LLM allowed.** AST-verified. V1.0.2: `determine_compliance_status()` trusts FSM `current_state`.
 - **Node 4 (Scoreboard Generator)**: Formatting only — aggregates verdicts into the audit scoreboard with SHA-256 hash-chain integrity.
 - **Node 5 (Orchestration)**: LangGraph DAG + FastAPI REST API with 13 endpoints.
 - **Frontend**: React 19 + TypeScript + Vite + Zustand dashboard with pipeline trigger, HITL review, compliance reports, workflow visualization, and telemetry table.
@@ -47,13 +47,13 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 | M2 | FSM Extractor (Node 2) | ✅ Complete |
 | M3 | Hash Chain Utility | ✅ Complete |
 | M4 | HITL Gate | ✅ Complete |
-| M5 | Assertion Evaluator (Node 3) | ✅ Complete |
+| M5 | Assertion Evaluator (Node 3) | ✅ Complete → V1.0.2 fixed |
 | M6 | Scoreboard Generator (Node 4) | ✅ Complete |
 | M7 | Backend API + LangGraph Orchestration | ✅ Complete |
 | M8 | Frontend Dashboard | ✅ Complete |
 | M9 | End-to-End Demo & Final Validation | ✅ Complete |
 | V1.0.1 | Interactive Demo Fixes + Enterprise UI | ✅ Complete (committed `8845e8a`) |
-| V1.0.2 | Final Demo Polish | ⬅ In working tree (uncommitted) |
+| V1.0.2 | Final Demo Polish + Evaluator Fix | ⬅ In working tree (5 files uncommitted) |
 | V2 | Production Hardening | ⬅ NEXT after V1 freeze |
 
 ## Scope
@@ -81,7 +81,7 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 | Auditability | Every compliance finding must be traceable to the originating regulation. |
 | Explainability | All verdicts must be explainable from the FSM + telemetry alone. |
 
-## API Endpoints (V1.0.1)
+## API Endpoints (V1.0.2)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -123,15 +123,15 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 ## Developers
 
 - **Shashank** (Linux)
-- **Friend** (Windows + WSL2)
+- **Brad** (Friend — Windows + WSL2)
 
 Both use Claude Code with the DeepSeek API. Work is asynchronous — no scheduled sessions.
 
-## Git Branches (as of 2026-07-06)
+## Git Branches (as of 2026-07-07)
 
 | Branch | Status | Notes |
 |--------|--------|-------|
-| `dev` | ✅ Active | V1.0.1 committed (`8845e8a`), V1.0.2 in working tree |
+| `dev` | ✅ Active | V1.0.1 committed (`8845e8a`). Two newer commits (`a1ee2ee`, `2bcc1ec`). V1.0.2 fixes in working tree (5 files). |
 | `backup-m5` | ⚠️ Stale | Early-development stubs, 27 commits behind dev, do NOT merge |
 | `docs-memory-sync` | ✅ Synced | Fast-forwarded to dev |
 | `docs-v1-complete` | ✅ Synced | Fast-forwarded to dev |

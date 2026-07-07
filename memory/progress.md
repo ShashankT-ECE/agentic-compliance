@@ -9,7 +9,7 @@
 
 **V1.0.1 COMPLETE + PUSHED** — All M0–M9 milestones + interactive demo fixes + enterprise UI polish committed. 404 tests passing.
 
-**V1.0.2 in working tree** — Dashboard sync fix, workflow diagram redesign, remaining terminology cleanup.
+**V1.0.2 in working tree** — Dashboard sync fix, workflow diagram redesign, terminology cleanup, evaluator status fix, report formula fix. 5 uncommitted files.
 
 ---
 
@@ -19,7 +19,7 @@
 - [x] API routes — pipeline trigger, status, result — ✅ M7
 - [x] API routes — HITL review (approve/reject/amend) — ✅ M4/M7
 - [x] API routes — telemetry ingest and query — ✅ M7
-- [x] API routes — compliance reports — ✅ M7
+- [x] API routes — compliance reports — ✅ M7 → ✅ V1.0.2 (compliance_pct formula fix)
 - [x] API routes — pipeline resume (`POST /{run_id}/resume`) — ✅ V1.0.1
 - [x] API dependency injection (`deps.py`) — ✅ M7
 - [x] Data models — obligations (`models/obligation.py`) — ✅ M0
@@ -32,7 +32,7 @@
 - [x] Utility — hash chain integrity (`utils/hash_chain.py`) — ✅ M3
 - [x] Utility — LLM client (`utils/llm_client.py`) — ✅ M1 → ✅ V1.0.1 (max_tokens=16384)
 - [x] Utility — telemetry generation (`utils/telemetry_gen.py`) — ✅ M5
-- [x] Utility — state machine engine (`utils/state_machine.py`) — ✅ M5
+- [x] Utility — state machine engine (`utils/state_machine.py`) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status fix)
 - [x] Utility — timeline evaluator (`utils/timeline_evaluator.py`) — ✅ M5
 - [x] Pipeline — state schema (`pipeline/state.py`) — ✅ M0
 - [x] Pipeline — graph orchestration (`pipeline/graph.py`) — ✅ M7
@@ -77,7 +77,7 @@
 - [x] Node 1 — PDF Parser (LLM allowed) — ✅ M1 → ✅ V1.0.1
 - [x] Node 2 — FSM Extractor (LLM allowed) — ✅ M2 → ✅ V1.0.1
 - [x] HITL Gate (deterministic, no LLM) — ✅ M4 → ✅ V1.0.1
-- [x] Node 3 — Assertion Evaluator (LLM strictly prohibited) — ✅ M5
+- [x] Node 3 — Assertion Evaluator (LLM strictly prohibited) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status fix)
 - [x] Node 4 — Scoreboard Generator (formatting only) — ✅ M6
 
 ## Testing
@@ -87,7 +87,7 @@
 - [x] `test_fsm.py` — 34 tests — ✅ M2
 - [x] `test_hash_chain.py` — 20 tests — ✅ M3
 - [x] `test_hitl.py` — 46 tests — ✅ M4 → ✅ V1.0.1 (monkeypatch fix)
-- [x] `test_evaluator.py` — 69 tests — ✅ M5
+- [x] `test_evaluator.py` — 69 tests — ✅ M5 → ✅ V1.0.2 (determine_compliance_status tests still pass with new logic)
 - [x] `test_scoreboard.py` — 38 tests — ✅ M6
 - [x] `test_orchestration.py` — 53 tests — ✅ M7
 - [x] `test_integration.py` — 37 tests (26 original + 7 resume + 4 HITL list) — ✅ M9 → ✅ V1.0.1
@@ -124,16 +124,22 @@
 - [x] HITL list rewrite (disk-authoritative, zero stale leaks) — ✅
 - [x] Real DeepSeek v4 Pro end-to-end verification — ✅
 
-## V1.0.2 — Final Demo Polish (uncommitted)
+## V1.0.2 — Final Demo Polish + Evaluator Fix (uncommitted)
 
 - [x] Dashboard state sync fix (onReviewed calls fetchHitlList + fetchStatus) — ✅ (working tree)
 - [x] Linear workflow diagram redesign (no overlapping arrows) — ✅ (working tree)
 - [x] FSM-XXXX → OBL-XXXX formatting — ✅ (working tree)
 - [x] Initial State → Current Status label — ✅ (working tree)
+- [x] **determine_compliance_status() fix** — trust self._current_state — ✅ (working tree, today)
+- [x] **Report compliance_pct formula fix** — match scoreboard — ✅ (working tree, today)
+- [x] Backend test suite (404 passed) — ✅
+- [x] Frontend build (52 modules, zero errors) — ✅
+- [x] Live end-to-end API verification (non-compliant verdict confirmed) — ✅
 - [ ] Final manual browser demo — pending
+- [ ] Decide on demo fixture gap (3 FSMs still PENDING due to missing events) — pending
 - [ ] Clean stale runtime data — pending
-- [ ] One clean end-to-end demo — pending
 - [ ] Commit and push V1.0.2 — pending
+- [ ] Declare V1 frozen — pending
 
 ## Environment
 
@@ -151,12 +157,12 @@
 ## Memory System
 
 - [x] `CLAUDE.md` — permanent operating manual
-- [x] `memory/current_task.md` — updated 2026-07-06
-- [x] `memory/progress.md` — updated 2026-07-06
-- [x] `memory/project_handoff.md` — updated 2026-07-06
-- [x] `memory/session_handoff.md` — updated 2026-07-06
-- [x] `memory/decision_log.md` — updated 2026-07-06
-- [x] `memory/graphify_handoff.md` — updated 2026-07-06
+- [x] `memory/current_task.md` — updated 2026-07-07
+- [x] `memory/progress.md` — updated 2026-07-07
+- [x] `memory/project_handoff.md` — updated 2026-07-07
+- [x] `memory/session_handoff.md` — updated 2026-07-07
+- [x] `memory/decision_log.md` — updated 2026-07-07
+- [x] `memory/graphify_handoff.md` — updated 2026-07-07
 - [x] `memory/project_roadmap.md` — unchanged (V2 scope)
 
 ## Documentation
@@ -179,7 +185,9 @@
 - [x] Compliance workflow visualization works
 - [x] Data integrity (hash chain) verifiable
 - [x] Tamper detection confirmed (4 attack vectors)
-- [ ] Final clean end-to-end demo — pending (stale runtime data to clean)
+- [x] Verdict statuses are now meaningful (non_compliant for missed deadlines)
+- [x] Report compliance percentage matches scoreboard formula
+- [ ] Final clean end-to-end demo — pending (fixture gap decision + stale data cleanup)
 
 ---
 

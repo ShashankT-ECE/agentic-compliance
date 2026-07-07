@@ -4,11 +4,11 @@
 
 ## Developer
 
-Friend (Windows + WSL2)
+Brad (Friend — Windows + WSL2)
 
 ## Date
 
-2026-07-06
+2026-07-07
 
 ## Branch
 
@@ -16,34 +16,88 @@ Friend (Windows + WSL2)
 
 ## Latest Commit
 
-`8845e8a` — `fix(v1): restore interactive demo, add parser robustness, and apply enterprise UI polish`
+`2bcc1ec` — `test: isolate runtime persistence during integration tests`
+
+> Two commits have landed since the 2026-07-06 memory update:
+> - `a1ee2ee` — `docs: synchronize project memory after V1.0.1 verification`
+> - `2bcc1ec` — `test: isolate runtime persistence during integration tests`
 
 ## Repository State
 
-- `dev` == `origin/dev` — pushed and synchronized
-- Working tree has **uncommitted UI polish** for V1.0.2 (FSMViewer redesign, dashboard sync fix, terminology cleanup)
-- All branches except `backup-m5` fast-forwarded to `dev`
-- **Agentic Compliance V1.0.1 COMPLETE** ✅ (committed and pushed)
-- **V1.0.2 in progress** (uncommitted UI polish)
+- `dev` has 2 new commits since last memory sync (pushed by Shashank)
+- Working tree has **5 modified files** — 3 V1.0.2 polish + 2 today's fixes
+- All 5 files are **uncommitted**
+- **404 tests pass, 0 fail**
+- **Frontend builds clean** (52 modules, zero errors)
 
 ---
 
 ## Current Feature
 
-**V1.0.2 — Final Demo Polish (in progress on working tree)**
+**V1.0.2 — Final Demo Polish + Evaluator Fix**
 
-V1.0.1 delivered (committed `8845e8a`):
-- 14 files changed: all 8 root causes fixed, enterprise UI design system, HITL review page, resume endpoint, parser truncation recovery, disk-authoritative HITL list
-- 404 tests passing, 0 failing
-- Frontend builds with zero errors
-- All branches synced to dev
-- Real DeepSeek v4 Pro API works end-to-end with `max_tokens=16384`
+### V1.0.2 polish (existing, uncommitted)
 
-V1.0.2 in working tree (NOT yet committed):
-- Dashboard state sync fix (fetchStatus called on every HITL review action)
-- Workflow diagram redesigned to linear layout (no overlapping arrows)
-- Remaining technical terminology cleaned up (FSM-→OBL-, Initial State→Current Status)
-- 404 tests still pass, frontend builds clean
+| File | Change |
+|------|--------|
+| `backend/app/api/routes/pipeline.py` | Dashboard state sync (fetchStatus on every HITL review) |
+| `frontend/src/components/FSMViewer/index.tsx` | Linear workflow diagram (no overlapping arrows) |
+| `frontend/src/pages/hitl.tsx` | onReviewed sync fix + terminology cleanup |
+
+### Today's fixes (2026-07-07, uncommitted)
+
+| File | Change |
+|------|--------|
+| `backend/app/utils/state_machine.py` | `determine_compliance_status()` now trusts `self._current_state` |
+| `backend/app/api/routes/reports.py` | Report `compliance_pct` now matches scoreboard formula |
+
+---
+
+## What Was Done Today
+
+### Phase 1 — Diagnostic Investigation
+
+- Traced the "all PENDING" report bug through the full pipeline (trigger → evaluator → scoreboard → report → frontend)
+- Called live API on the completed run and compared raw verdicts vs report
+- **Finding**: report faithfully mirrors backend — backend already returns all-PENDING verdicts
+- **Smoking gun**: VER-68C15CC86544 had `current_state="LATE"` but `status="pending"`
+
+### Phase 2 — Root Cause Identification
+
+**Bug in `StateMachine.determine_compliance_status()`** at `state_machine.py:164-202`:
+
+The method re-derived canonical status from `(is_terminal, has_transitions, deadline_met)` but never read `self._current_state`. When the FSM transitioned to LATE (which has an outgoing `grace_expired → NON_COMPLIANT` transition), the method saw "non-terminal + has transitions" and returned `DUE`, which `_map_status` turned into `PENDING`.
+
+Two decision points mattered:
+1. `is_terminal` = whether current state has NO outgoing transitions. LATE had one → `False`.
+2. `has_transitions` = whether any transition fired. One had → `True`.
+3. Branch: `not terminal and has_transitions` → returns `DUE` → maps to `PENDING`.
+
+**Contributing factor**: Report formula `compliant / total * 100` counted pending verdicts in the denominator, giving 0% even when nothing could be evaluated yet. Scoreboard correctly used `compliant / (total - pending)`.
+
+### Phase 3 — Fix Implementation
+
+**Fix 1 — `state_machine.py`** (lines 164-200):
+- Rewrote `determine_compliance_status()` to trust `self._current_state` as the canonical status
+- The FSM's transitions (including timeline-driven ones) are the source of truth
+- `deadline_met=False` still overrides to LATE regardless of FSM state (regulatory requirement)
+- Removed the faulty `(is_terminal, has_transitions)` branch logic
+
+**Fix 2 — `reports.py`** (lines 96-106):
+- Changed formula from `compliant / total * 100` to `compliant / (total - pending) * 100`
+- When all are pending (evaluated=0), returns 100.0 (matches scoreboard: "nothing to fail yet")
+
+### Phase 4 — Verification
+
+| Check | Result |
+|-------|--------|
+| Backend test suite | **404 passed, 0 failed** |
+| Frontend build | **52 modules, zero errors** |
+| Live end-to-end demo | Pipeline triggered → 4 FSMs approved → resumed → completed |
+| Verdict statuses | CL-02: `non_compliant` (was `pending` before fix) ✅ |
+| | 3 others: `pending` (correct — no matching events in demo fixture) ✅ |
+| Scoreboard compliance_rate | 0.0 (= 0/1 evaluated) ✅ |
+| Report compliance_pct | 0.0 (= 0/1 evaluated, matches scoreboard) ✅ |
 
 ---
 
@@ -51,93 +105,27 @@ V1.0.2 in working tree (NOT yet committed):
 
 **Complete V1.0.2 and freeze V1** — when resuming:
 
-1. Final manual end-to-end demo with clean runtime data (no stale HITL runs).
-2. Decide demo strategy: runtime cleanup vs filtering vs demo reset endpoint.
-3. Commit V1.0.2 UI polish.
-4. Push to origin.
-5. Declare V1 frozen.
-6. Begin V2 planning.
+1. Final manual browser end-to-end demo to confirm dashboard renders new verdicts.
+2. Review the 3 remaining PENDING verdicts — decide whether to enrich demo fixture or accept as-is (they're correct given the fixture's event types).
+3. Clean stale runtime data (cleanup script or manual `rm`).
+4. Commit V1.0.2 (all 5 files).
+5. Push to origin.
+6. Declare V1 frozen.
+7. Begin V2 planning.
 
 ---
 
-## Completed Today (2026-07-06)
+## Remaining Known Issues
 
-### Root Cause Diagnosis (8 bugs identified)
-
-| # | Category | Root Cause | Fix |
-|---|----------|-----------|-----|
-| 1 | A — Definite bug | `.env` never loaded at startup | Added `load_dotenv()` to `main.py` |
-| 2 | B — Missing V1 | No resume endpoint | Added `POST /{run_id}/resume` |
-| 3 | B — Missing V1 | No HITL review page | Created `frontend/src/pages/hitl.tsx` |
-| 4 | A — Definite bug | `list_hitl_runs` ignored disk | Rewrote as disk-authoritative scan |
-| 5 | A — Definite bug | `get_pipeline_status` returned 0 FSMs | Added disk fallback for awaiting_approval |
-| 6 | A — Definite bug | `_count_fsms()` `str()` vs `.value` | Fixed enum comparison |
-| 7 | B — Missing V1 | Telemetry ingest/evaluator disconnect | Resume endpoint merges global store |
-| 8 | B — Missing V1 | Run status never refreshed after resume | fetchStatus called in resume action + onReviewed |
-
-### Additional bugs found during verification
-
-- `test_hitl.py` permanently mutated `_LOCKED_DATA_DIR` (direct assignment)
-- `test_hitl.py` permanently mutated `pipeline._LOCKED_DATA_DIR` (no monkeypatch)
-- `HitlListResponse` model mismatch with query-param variant of `list_hitl_runs`
-- `AmendAction.corrected_fsm` typed as `dict[str, Any]` rejected string JSON
-- Resume endpoint allowed re-resume of completed runs (fixed with status guard)
-- Data paths resolved to `backend/app/data/` instead of `backend/data/` (off-by-one `.parent`)
-- `.gitignore` patterns `/*` only matched top-level files, not nested `{run_id}/` directories
-- Server running stale code (process started before file modifications)
-
-### Parser robustness
-
-- `max_tokens` increased 4096 → 16384 in `DeepSeekClient` (eliminates truncation)
-- Added truncated JSON array recovery (Attempt 4) with depth-tracking character walk
-- 4 regression tests for truncation recovery
-- Saved captured real DeepSeek v4 Pro response to `backend/debug/last_deepseek_response.txt`
-
-### Enterprise UI polish
-
-- Complete CSS design system rewrite (blue/slate/white enterprise palette)
-- Renamed FSM → Compliance Obligation throughout presentation layer
-- Removed unreadable floating SVG transition labels
-- Linear workflow diagram redesign (no overlapping arrows)
-- HITL page: obligation text prominent, review progress, larger buttons, color-coded action panels
-- Dashboard: new run cards, stat cards, enterprise spacing/typography/shadows
-- V1.0.2: dashboard state sync (fetchStatus on every review), FSM-→OBL- formatting
-
-### Branch synchronization
-
-- `dev` committed and pushed (`8845e8a`)
-- `docs-memory-sync`, `docs-v1-complete`, `m5-rebuild`, `m6-scoreboard`, `m7-orchestration`, `m8-frontend` fast-forwarded to `dev`
-- `backup-m5` skipped (27 merge conflicts, early-development placeholder stubs)
-
----
-
-## Verification Results (Latest)
-
-| Check | Result |
-|-------|--------|
-| Backend tests | 404 passed, 0 failed |
-| Frontend build | 52 modules, zero errors |
-| Demo script (`run_demo.sh`) | ✅ Full pipeline with MockLLMClient |
-| Real DeepSeek API (v4 pro) | ✅ 4 clauses extracted, validated |
-| Interactive API workflow | ✅ 20/20 steps (trigger → HITL → approve → resume → evaluate → scoreboard → report) |
-| In-process workflow verification | ✅ 36/36 steps |
-| UI polish verification | ✅ 13/13 steps |
-
----
-
-## Known Issues (V1.0.2)
-
-- **Dashboard must be manually verified** after final approval — `onReviewed()` calls `fetchStatus` but full browser workflow not yet confirmed
-- **HITL queue accumulates historical runs** — ~74 stale pending-review directories from test runs; need cleanup strategy
-- **Demo strategy decision needed**: runtime cleanup script vs in-app filtering vs `POST /api/pipeline/demo/reset` endpoint
-- **One final clean end-to-end demo** needed before declaring V1 frozen
-- **Frontend running on port 5173, backend on 8000** — Vite proxy configured
-- `docs/architecture.pdf` broken (ASCII placeholder) — V2
-- `poppler-utils` not installed — V2
-- In-memory stores (lost on restart) — V2 (PostgreSQL)
-- No authentication — V2
-- Docker Compose incomplete — V2
-- CI placeholders — V2
+- **3 of 4 verdicts remain PENDING** — demo telemetry fixture has no events matching the FSM transition triggers (`bye_laws_amended`, `dissemination_completed`, `margin_collected`). Timeline start events (`circular_issued`, `margin_call_issued`) also absent. This is a **fixture coverage gap**, not an evaluator bug.
+- **HITL queue accumulates historical runs** — ~74 stale directories from test runs; cleanup needed.
+- **Dashboard browser workflow** not yet confirmed with the fixed verdict statuses.
+- `docs/architecture.pdf` broken (ASCII placeholder) — V2.
+- `poppler-utils` not installed — V2.
+- In-memory stores (lost on restart) — V2 (PostgreSQL).
+- No authentication — V2.
+- Docker Compose incomplete — V2.
+- Frontend tests — V2.
 
 ---
 
@@ -146,10 +134,10 @@ V1.0.2 in working tree (NOT yet committed):
 1. `CLAUDE.md` — operating manual
 2. `memory/session_handoff.md` — today's session details
 3. `memory/progress.md` — updated completion status
-4. `memory/project_roadmap.md` — V2 scope
-5. `frontend/src/pages/index.tsx` — dashboard state fix
-6. `frontend/src/components/FSMViewer/index.tsx` — workflow diagram redesign
-7. `frontend/src/pages/hitl.tsx` — onReviewed sync fix
+4. `frontend/src/pages/index.tsx` — dashboard rendering of verdicts
+5. `frontend/src/components/AuditReport/index.tsx` — report display
+6. `backend/tests/fixtures/sample_telemetry.json` — demo fixture (may need enrichment)
+7. `scripts/run_demo.sh` — end-to-end demo script
 
 ---
 
@@ -162,3 +150,4 @@ V1.0.2 in working tree (NOT yet committed):
 - V2 must be planned and approved before any implementation begins.
 - `backup-m5` branch has early-development stubs — do NOT merge into it.
 - Server must be restarted after any backend code change.
+- **Do NOT commit or push** until manual browser verification succeeds.
