@@ -1,23 +1,21 @@
 # Graphify Handoff
 
 > **Purpose**: Pipeline graph topology, state, and node/edge information for the Graphify visualization integration.
-> **Updated**: 2026-07-08 — V1.0.2 overdue-transition integration + explanation column in working tree.
+> **Updated**: 2026-07-08 — V1.0.2 complete, committed, pushed. V1 frozen.
 
 ---
 
 ## Graph Status
 
-**V1.0.1 COMMITTED + PUSHED.** All 5 pipeline nodes + HITL gate implemented and debugged. LangGraph StateGraph wired with conditional routing. FastAPI provides 13 REST endpoints. React dashboard renders all stages. Demo script validates full flow. Real DeepSeek v4 Pro API works end-to-end.
-
-**V1.0.2 in working tree (9 files modified)**: Dashboard sync, workflow diagram redesign, terminology polish, determine_compliance_status fix, report compliance_pct fix, **overdue-transition integration**, **explanation column** (backend + frontend).
+**V1.0.2 COMPLETE + PUSHED (`401b659`).** All 5 pipeline nodes + HITL gate implemented and debugged. LangGraph StateGraph wired with conditional routing. FastAPI provides 13 REST endpoints. React dashboard renders all stages. Demo script validates full flow. Real DeepSeek v4 Pro API works end-to-end. Official SEBI circular (CIR/2025/57) validated. V1 frozen.
 
 ---
 
-## Pipeline Topology (V1.0.2 State)
+## Pipeline Topology (V1.0.2 Final)
 
 ```
 [Node 1: PDF Parser] ──→ [Node 2: FSM Extractor] ──→ [HITL Gate] ──→ [Node 3: Evaluator] ──→ [Node 4: Scoreboard]
-       ✅ M1                      ✅ M2                    ✅ M4              ✅ M5 → V1.0.2          ✅ M6
+       ✅ M1                      ✅ M2                    ✅ M4              ✅ M5 V1.0.2            ✅ M6
                                                            │
                                               ┌────────────┴────────────┐
                                               │                         │
@@ -39,12 +37,12 @@
 | **State** | `CompliancePipelineState` (Pydantic model) |
 | **Nodes** | 5 (4 pipeline + 1 HITL gate) |
 | **Edges** | 4 linear + 1 conditional (HITL decision) |
-| **API** | FastAPI with 13 REST endpoints (12 original + resume) |
+| **API** | FastAPI with 13 REST endpoints |
 | **Frontend** | React 19 + TypeScript + Vite + Zustand (52 modules) |
 | **Demo** | `scripts/run_demo.sh` — in-process, MockLLMClient, deterministic |
 | **Tests** | 410 (68+39+34+20+46+75+38+53+37) — 0 failed |
 
-## Key V1.0.2 Changes
+## Key V1.0.2 Changes (All Committed `401b659`)
 
 ### Evaluator: determine_compliance_status() trusts current_state (2026-07-07)
 
@@ -61,7 +59,7 @@ Result: `current_state` and `status` are now consistent — both reflect the tim
 
 ### Report: explanation column (2026-07-08)
 
-`_derive_explanation(verdict)` produces a one-sentence explanation from the evidence trail. Displayed as "Explanation" column in the frontend verdicts table. PENDING verdicts now explain why (e.g., `"Awaiting start event 'circular_issued' — not found in telemetry data."`).
+`_derive_explanation(verdict)` produces a one-sentence explanation from the evidence trail. Displayed as "Explanation" column in the frontend verdicts table. PENDING verdicts now explain why (e.g., `"Awaiting start event 'circular_issued' — not found in telemetry data."`). Browser-verified — no "—" fallbacks.
 
 ---
 
@@ -69,10 +67,10 @@ Result: `current_state` and `status` are now consistent — both reflect the tim
 
 | ID | Name | LLM? | Status | Input | Output |
 |----|------|------|--------|-------|--------|
-| 1 | PDF Parser | ✅ Yes | ✅ M1 → V1.0.1 | Circular PDF path | `List[ObligationClause]` |
-| 2 | FSM Extractor | ✅ Yes | ✅ M2 → V1.0.1 | `List[ObligationClause]` | `List[HybridFSM]` |
-| — | HITL Gate | ❌ Never | ✅ M4 → V1.0.1 | `List[HybridFSM]` | `List[LockedFSM]` (PENDING_REVIEW) |
-| 3 | Assertion Evaluator | ❌ Never | ✅ M5 → V1.0.2 | `List[LockedFSM]` + `List[TelemetryEvent]` | `List[ComplianceVerdict]` |
+| 1 | PDF Parser | ✅ Yes | ✅ M1 V1.0.1 | Circular PDF path | `List[ObligationClause]` |
+| 2 | FSM Extractor | ✅ Yes | ✅ M2 V1.0.1 | `List[ObligationClause]` | `List[HybridFSM]` |
+| — | HITL Gate | ❌ Never | ✅ M4 V1.0.1 | `List[HybridFSM]` | `List[LockedFSM]` (PENDING_REVIEW) |
+| 3 | Assertion Evaluator | ❌ Never | ✅ M5 V1.0.2 | `List[LockedFSM]` + `List[TelemetryEvent]` | `List[ComplianceVerdict]` |
 | 4 | Scoreboard Generator | Format only | ✅ M6 | `List[ComplianceVerdict]` | `Scoreboard` + `HashChain` |
 
 ## Edges
@@ -86,25 +84,25 @@ Result: `current_state` and `status` are now consistent — both reflect the tim
 | Node 3 | Node 4 | Always | ✅ M7 wired |
 | Node 4 | END | Always | ✅ M7 wired |
 
-## API Endpoints (V1.0.2)
+## API Endpoints (V1.0.2 Final)
 
 | Method | Path | Node | Added |
 |--------|------|------|-------|
 | `POST` | `/api/pipeline/trigger` | Starts pipeline (Nodes 1→2→HITL) | M7 |
 | `GET` | `/api/pipeline/status/{run_id}` | Queries pipeline status | M7 |
 | `GET` | `/api/pipeline/result/{run_id}` | Returns verdicts + scoreboard | M7 |
-| `POST` | `/api/pipeline/{run_id}/resume` | Resumes after HITL (evaluator→scoreboard) | **V1.0.1** |
+| `POST` | `/api/pipeline/{run_id}/resume` | Resumes after HITL (evaluator→scoreboard) | V1.0.1 |
 | `GET` | `/api/pipeline/hitl` | Lists HITL review items | M7 |
 | `POST` | `/api/pipeline/hitl/{fsm_id}/approve` | Approves obligation at HITL gate | M7 |
 | `POST` | `/api/pipeline/hitl/{fsm_id}/reject` | Rejects obligation at HITL gate | M7 |
 | `POST` | `/api/pipeline/hitl/{fsm_id}/amend` | Amends obligation at HITL gate | M7 |
 | `POST` | `/api/telemetry/ingest` | Ingests broker telemetry | M7 |
 | `GET` | `/api/telemetry/query` | Queries ingested telemetry | M7 |
-| `GET` | `/api/reports/generate/{run_id}` | Generates audit report | M7 → **V1.0.2** (compliance_pct fix + explanation) |
-| `GET` | `/api/reports/{report_id}` | Retrieves stored report | M7 → **V1.0.2** (verdicts include explanation) |
+| `GET` | `/api/reports/generate/{run_id}` | Generates audit report | M7 → V1.0.2 (compliance_pct fix + explanation) |
+| `GET` | `/api/reports/{report_id}` | Retrieves stored report | M7 → V1.0.2 (verdicts include explanation) |
 | `GET` | `/health` | Health check | M7 |
 
-## Data Flow (V1.0.2 Complete)
+## Data Flow (V1.0.2 Final)
 
 ```
 [Circular PDF]
@@ -123,26 +121,26 @@ Result: `current_state` and `status` are now consistent — both reflect the tim
 [locked_fsms: List[LockedFSM]] ← API-driven review (approve/reject/amend)
      │                            persist_locked_fsms() → data/locked_fsms/{run_id}/
      ▼ (on all-resolved)
-[evaluator_node()] → M5 → V1.0.2 — deterministic, no LLM, AST-verified
+[evaluator_node()] → M5 V1.0.2 — deterministic, no LLM, AST-verified
      │  1. StateMachine.apply_events() → event-driven FSM transitions
      │  2. TimelineEvaluator.evaluate_timeline_rule() → overdue detection
-     │  3. StateMachine.transition_to(overdue_transition) → timeline-driven advance ★NEW
+     │  3. StateMachine.transition_to(overdue_transition) → timeline-driven advance
      │  4. determine_compliance_status(deadline_met) → canonical status
      │  5. _map_status(canonical) → VerdictStatus
      │
      ▼
 [compliance_verdicts: List[ComplianceVerdict]]
-     │  current_state now reflects both event + timeline subsystems ★FIXED
+     │  current_state reflects both event + timeline subsystems
      │
      ▼ generate_scoreboard() → M6
 [scoreboard: Scoreboard + hash_chain: HashChain]
      │
-     ▼ generate_report() → _derive_explanation() → explanation column ★NEW
+     ▼ generate_report() → _derive_explanation() → explanation column
 [REST API response — 13 endpoints, verdicts include explanation field]
      │
      ▼
 [React Dashboard — trigger, HITL review, telemetry, reports, compliance workflow]
-     │  AuditReport → Explanation column (7th column in verdicts table) ★NEW
+     │  AuditReport → Explanation column (7th column in verdicts table)
      │
      ▼
 [scripts/run_demo.sh — end-to-end demo with MockLLMClient]
@@ -162,18 +160,18 @@ SEBI circular → ObligationClause → HybridFSM → LockedFSM
                                           verify_chain() ✓
 ```
 
-## Verdict Status Semantics (V1.0.2)
+## Verdict Status Semantics (V1.0.2 Final)
 
 | FSM Current State | canonical → VerdictStatus | Meaning |
 |---|---|---|
 | PENDING | → PENDING | Nothing started yet (no events, no timeline trigger) |
 | DUE | → PENDING | In progress, awaiting more events |
 | COMPLIANT | → COMPLIANT | All required actions on time |
-| LATE | → NON_COMPLIANT | Action done after deadline or deadline missed ★NOW CORRECT |
+| LATE | → NON_COMPLIANT | Action done after deadline or deadline missed |
 | NON_COMPLIANT | → NON_COMPLIANT | Deadline passed, no action |
-| Any + deadline_met=False | → LATE → NON_COMPLIANT | Timeline override, FSM advanced via transition_to() ★NOW CORRECT |
+| Any + deadline_met=False | → LATE → NON_COMPLIANT | Timeline override, FSM advanced via transition_to() |
 
-## Explanation Column (V1.0.2)
+## Explanation Column (V1.0.2 Final)
 
 | Verdict Status | Scenario | Example Explanation |
 |---------------|----------|-------------------|
@@ -182,6 +180,20 @@ SEBI circular → ObligationClause → HybridFSM → LockedFSM
 | PENDING | Start event missing | `"Awaiting start event 'circular_issued' — not found in telemetry data."` |
 | PENDING | No matching events | `"No matching telemetry events found for this obligation's transition triggers."` |
 | PENDING | In progress | `"In progress: reached 'DUE' — awaiting further events to reach a terminal state."` |
+
+## Official SEBI Circular Validation (2026-07-08)
+
+Validated end-to-end against `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57` (April 28, 2025):
+- 4 clauses extracted, 4 FSMs generated, 4 verdicts evaluated
+- Scoreboard: hash chain verified
+- Report: all explanations populated
+- No code changes required
+
+399-page Master Circular (`SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/90`, June 17, 2025) also tested:
+- PDF saved to `backend/data/circulars/`
+- 53 clauses recovered via truncation recovery (when API succeeds)
+- Bottleneck: `max_tokens=16384` consumed by v4 Pro reasoning on 196K input tokens
+- Requires V2: larger token budget or chunked parsing
 
 ## Graph Changes
 
@@ -198,7 +210,9 @@ SEBI circular → ObligationClause → HybridFSM → LockedFSM
 | 2026-07-06 | V1.0.2 wip | Dashboard sync fix, linear workflow diagram, terminology polish |
 | 2026-07-07 | V1.0.2 evaluator fix | determine_compliance_status() trusts current_state; report compliance_pct aligned with scoreboard |
 | 2026-07-08 | V1.0.2 overdue integration | transition_to() + overdue_transition wired into evaluator; current_state now reflects timeline advances |
-| 2026-07-08 | V1.0.2 explanation column | _derive_explanation() from evidence; 7th column in frontend verdicts table; 410 tests |
+| 2026-07-08 | V1.0.2 explanation column | _derive_explanation() from evidence; 7th column in frontend verdicts table; browser-verified |
+| 2026-07-08 | V1.0.2 release | All changes committed (`401b659`), pushed to `origin/dev`. V1 frozen. |
+| 2026-07-08 | V1 freeze | No further changes to V1 pipeline, models, evaluator, or API. V2 planning begins. |
 
 ## Test Coverage
 
@@ -237,3 +251,14 @@ Features:
   - Deterministic (same hash chain root every run)
   - Exit codes: 0=success, 1=deps, 2=pipeline, 3=hash-chain
 ```
+
+## V2 Roadmap — Planned Graph Changes
+
+| Proposed Change | Description | Priority |
+|----------------|-------------|----------|
+| Chunked parser | Split large PDFs into sections, extract obligations per chunk | High |
+| max_tokens increase | Support 32K-64K output for reasoning models on large inputs | High |
+| File upload endpoint | Replace `circular_path` with multipart file upload | High |
+| PostgreSQL persistence | Replace in-memory stores with SQLAlchemy + Alembic | High |
+| Authentication | API keys or JWT for pipeline endpoints | Medium |
+| CI/CD pipeline | GitHub Actions for test suite + build verification | Medium |

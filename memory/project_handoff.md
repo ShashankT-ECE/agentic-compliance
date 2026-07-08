@@ -47,14 +47,31 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 | M2 | FSM Extractor (Node 2) | ✅ Complete |
 | M3 | Hash Chain Utility | ✅ Complete |
 | M4 | HITL Gate | ✅ Complete |
-| M5 | Assertion Evaluator (Node 3) | ✅ Complete → V1.0.2 fixed |
+| M5 | Assertion Evaluator (Node 3) | ✅ Complete |
 | M6 | Scoreboard Generator (Node 4) | ✅ Complete |
 | M7 | Backend API + LangGraph Orchestration | ✅ Complete |
 | M8 | Frontend Dashboard | ✅ Complete |
 | M9 | End-to-End Demo & Final Validation | ✅ Complete |
 | V1.0.1 | Interactive Demo Fixes + Enterprise UI | ✅ Complete (committed `8845e8a`) |
-| V1.0.2 | Final Demo Polish + Evaluator Fix + Explanation UX | ⬅ In working tree (9 files uncommitted) |
-| V2 | Production Hardening | ⬅ NEXT after V1 freeze |
+| V1.0.2 | Final Demo Polish + Evaluator Fix + Explanation UX | ✅ Complete (committed `401b659`) |
+| V2 | Production Hardening | ⬅ NEXT — roadmap defined in `docs/v2_roadmap.md` |
+
+## V2 Milestones (see `docs/v2_roadmap.md` for full details)
+
+| M | Name | Summary |
+|---|------|---------|
+| M1 | Regulatory RAG Architecture | Document store, circular registry, retrieval pipeline foundation |
+| M2 | PDF Chunking Strategy | Section-boundary-aware chunking for regulatory PDFs |
+| M3 | Metadata Extraction | Circular identity, entity classification, supersession chains |
+| M4 | Vector Database | Chroma (dev) → pgvector (prod), embedding pipeline |
+| M5 | Hybrid Retrieval (BM25 + Vector) | Reciprocal rank fusion, re-ranking, retrieval benchmarks |
+| M6 | Multi-Obligation Extraction | Section-by-section extraction, dedup, merge, quality scoring |
+| M7 | Cross-Reference Resolution | Parse + resolve inter-circular legal references |
+| M8 | Diff Agent | Compare circular versions, classify changes, assess impact |
+| M9 | Multi-Circular Support | Cross-circular obligation index, conflict detection, unified scoreboard |
+| M10 | Production Deployment | PostgreSQL, pgvector, auth, Docker Compose, CI/CD, observability |
+
+**Target**: ~847 tests across 10 milestones. 6 milestones on the critical path.
 
 ## Scope
 
@@ -72,6 +89,7 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 - 410 total tests.
 - Deterministic explanation column in audit reports (derived from evidence trail).
 - Timeline overdue transitions integrated into FSM evaluation (state/status consistency).
+- Validated end-to-end against official SEBI circular `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57`.
 
 ## Important Constraints
 
@@ -82,6 +100,7 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 | Determinism | Execution against operational data must be deterministic. |
 | Auditability | Every compliance finding must be traceable to the originating regulation. |
 | Explainability | All verdicts must be explainable from the FSM + telemetry alone. |
+| V1 freeze | Do not modify V1 pipeline, models, evaluator, or API. |
 
 ## API Endpoints (V1.0.2)
 
@@ -111,7 +130,7 @@ The pipeline is orchestrated via LangGraph as a directed acyclic graph with a co
 | Integrity | SHA-256 hash-chain |
 | Deployment | Docker Compose (basic) → full-stack (V2) |
 | AI | DeepSeek v4 Pro (Nodes 1, 2) — swappable via LLMClient abstraction |
-| Testing | pytest (404 tests), 37 integration tests |
+| Testing | pytest (410 tests), 37 integration tests |
 
 ## Coding Standards
 
@@ -133,7 +152,7 @@ Both use Claude Code with the DeepSeek API. Work is asynchronous — no schedule
 
 | Branch | Status | Notes |
 |--------|--------|-------|
-| `dev` | ✅ Active | V1.0.1 committed (`8845e8a`). Three newer memory-sync commits (`a1ee2ee`, `2bcc1ec`, `e533cff`). V1.0.2 fixes in working tree (9 files uncommitted). |
+| `dev` | ✅ Active | V1.0.2 committed (`401b659`), pushed to `origin/dev`. V1 frozen. |
 | `backup-m5` | ⚠️ Stale | Early-development stubs, 27 commits behind dev, do NOT merge |
 | `docs-memory-sync` | ✅ Synced | Fast-forwarded to dev |
 | `docs-v1-complete` | ✅ Synced | Fast-forwarded to dev |
@@ -141,3 +160,15 @@ Both use Claude Code with the DeepSeek API. Work is asynchronous — no schedule
 | `m6-scoreboard` | ✅ Synced | Fast-forwarded to dev |
 | `m7-orchestration` | ✅ Synced | Fast-forwarded to dev |
 | `m8-frontend` | ✅ Synced | Fast-forwarded to dev |
+
+## V2 Roadmap — Next Steps
+
+See `progress.md` for detailed V2 Roadmap. Key areas:
+- 399-page Master Circular support (chunked parsing, token budget)
+- PostgreSQL persistence (replace in-memory stores)
+- PDF upload UX (replace free-text path input)
+- Docker Compose full-stack deployment
+- Frontend test suite (Vitest + React Testing Library)
+- Authentication (API keys / JWT)
+- Production hardening (rate limiting, monitoring, logging)
+- CI/CD pipeline

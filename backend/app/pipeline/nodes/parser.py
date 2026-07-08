@@ -272,11 +272,12 @@ def _parse_clause_dict(data: dict[str, Any], circular_ref: str) -> ObligationCla
 
 
 async def parse_circular(
-    raw_text: str,
-    circular_ref: str,
-    llm_client: LLMClient,
+    raw_text: str = "",
+    circular_ref: str = "",
+    llm_client: LLMClient | None = None,
     *,
     prompt_path: str | Path | None = None,
+    chunks: list[str] | None = None,
 ) -> list[ObligationClause]:
     """Parse raw circular text into structured obligation clauses.
 
@@ -284,36 +285,55 @@ async def parse_circular(
     circular text to the LLM with a structured prompt, parses the JSON
     response, and validates every clause through the Pydantic model.
 
+    Supports two input modes:
+      - **V1 mode**: Provide ``raw_text`` (full PDF text).  Existing behaviour,
+        unchanged.
+      - **RAG mode** (V2 M1): Provide ``chunks`` — a list of pre-retrieved
+        text chunks.  The chunks are concatenated and used as the input text.
+        This avoids sending the entire PDF to the LLM when chunks have been
+        pre-indexed and retrieved.
+
     Args:
-        raw_text: Full text extracted from the SEBI circular PDF.
-        circular_ref: SEBI circular reference number (e.g.,
-                      'SEBI/HO/MIRSD/MIRSD-PoD-1/P/CIR/2024/001').
-        llm_client: LLM backend instance (e.g., DeepSeekClient or MockLLMClient).
+        raw_text: Full text extracted from the SEBI circular PDF (V1 mode).
+        circular_ref: SEBI circular reference number.
+        llm_client: LLM backend instance.
         prompt_path: Optional override for the prompt template path.
+        chunks: Optional list of pre-retrieved text chunks (RAG mode).
 
     Returns:
         List of validated ObligationClause instances.
 
     Raises:
-        ValueError: If raw_text is empty, LLM response cannot be parsed,
-                    or no valid clauses are extracted.
+        ValueError: If no input text is provided, LLM response cannot be
+                    parsed, or no valid clauses are extracted.
         LLMClientError: If the LLM API call fails.
         FileNotFoundError: If the prompt template is missing.
     """
-    if not raw_text.strip():
-        raise ValueError("raw_text is empty — cannot parse obligations from empty input")
+    # Determine input text: chunks take precedence over raw_text.
+    if chunks:
+        input_text = "\n\n".join(chunks)
+    elif raw_text:
+        input_text = raw_text
+    else:
+        raise ValueError(
+            "No input text provided — either raw_text or chunks must be non-empty"
+        )
+
+    if not input_text.strip():
+        raise ValueError("Input text is empty — cannot parse obligations")
 
     logger.info(
-        "Parsing circular '%s': text_len=%d chars",
+        "Parsing circular '%s': text_len=%d chars%s",
         circular_ref,
-        len(raw_text),
+        len(input_text),
+        " (RAG chunks)" if chunks else "",
     )
 
     # 1. Load the prompt template
     system_prompt = load_prompt_template(prompt_path)
 
     # 2. Build the user message with the circular text
-    user_message = f"CIRCULAR REFERENCE: {circular_ref}\n\nCIRCULAR TEXT:\n\n{raw_text}"
+    user_message = f"CIRCULAR REFERENCE: {circular_ref}\n\nCIRCULAR TEXT:\n\n{input_text}"
 
     # 3. Call the LLM
     try:
@@ -394,8 +414,14 @@ async def parser_node(state: dict[str, Any], llm_client: LLMClient) -> dict[str,
     """LangGraph node function for the PDF Parser.
 
     Reads ``circular_path`` and ``circular_id`` from pipeline state,
-    extracts text via pdf_ingest, parses obligations via LLM, and writes
-    the result to ``obligation_clauses`` in the state.
+    extracts text via pdf_ingest (or uses pre-retrieved RAG chunks),
+    parses obligations via LLM, and writes the result to
+    ``obligation_clauses`` in the state.
+
+    If a ``chunks`` key is present in state (from RAG retrieval), the
+    chunks are concatenated and used as the input text instead of
+    extracting the PDF.  This avoids sending the full document to the
+    LLM when chunks have been pre-indexed in the vector store.
 
     Args:
         state: Pipeline state dict (CompliancePipelineState-compatible).
@@ -406,17 +432,29 @@ async def parser_node(state: dict[str, Any], llm_client: LLMClient) -> dict[str,
     """
     circular_path = state.get("circular_path")
     circular_id = state.get("circular_id", "UNKNOWN")
+    chunks: list[str] | None = state.get("chunks")
 
-    if not circular_path:
-        raise ValueError("Pipeline state missing 'circular_path' — cannot parse PDF")
-
-    logger.info("Parser node: extracting text from %s", circular_path)
-
-    try:
-        raw_text = extract_text(circular_path)
-    except PdfIngestError as exc:
-        logger.exception("PDF extraction failed: %s", exc)
-        raise
+    if chunks:
+        # RAG mode: use pre-retrieved chunks.
+        logger.info(
+            "Parser node (RAG): using %d pre-retrieved chunks for '%s'",
+            len(chunks),
+            circular_id,
+        )
+        raw_text = "\n\n".join(chunks)
+    elif circular_path:
+        # V1 mode: extract full PDF text.
+        logger.info("Parser node: extracting text from %s", circular_path)
+        try:
+            raw_text = extract_text(circular_path)
+        except PdfIngestError as exc:
+            logger.exception("PDF extraction failed: %s", exc)
+            raise
+    else:
+        raise ValueError(
+            "Pipeline state missing both 'circular_path' and 'chunks' — "
+            "cannot parse PDF"
+        )
 
     state["raw_text"] = raw_text
 

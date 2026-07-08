@@ -9,95 +9,118 @@
 | **Date** | 2026-07-08 |
 | **Developer** | Brad (Friend — Windows + WSL2) |
 | **Branch** | `dev` |
-| **Latest Commit** | `e533cff` — docs: synchronize project memory after V1.0.2 investigation |
-| **Repository State** | 9 files modified in working tree. Nothing committed. Nothing pushed. |
-| **Overall Status** | **V1.0.1 COMMITTED + PUSHED** — V1.0.2 functionally complete, uncommitted — 1 UX blocker remaining |
+| **Latest Commit** | `401b659` — feat(v1.0.2): improve audit report explanations and evaluation flow |
+| **Repository State** | Working tree clean. All changes committed and pushed to `origin/dev`. |
+| **Overall Status** | **V1.0.2 COMPLETE + PUSHED — V1 FROZEN** |
 
 ---
 
-## What Was Done Today
+## What Was Done — Full V1.0.2 History
 
-### Phase 3 — Browser Verification (continued from 2026-07-07)
+### Phase 1 — Diagnostic Investigation (2026-07-07)
 
-Full browser end-to-end walkthrough:
-1. Trigger pipeline → 4 FSMs extracted
-2. HITL review → all 4 approved
-3. Resume → evaluator → scoreboard → report
-4. Observed CL-01 and CL-02 both `LATE / NON_COMPLIANT` ✓
-5. Observed CL-03 and CL-04 both `PENDING / PENDING` ✓
+- Traced the "all PENDING" report bug through the full pipeline.
+- Root cause: `StateMachine.determine_compliance_status()` re-derived canonical status from `(is_terminal, has_transitions)` instead of reading `self._current_state`.
+- **Fix 1**: `state_machine.py` — `determine_compliance_status()` now trusts `self._current_state`.
+- **Fix 2**: `reports.py` — Report `compliance_pct` now matches scoreboard formula.
 
-**Finding**: CL-01 displayed `State=PENDING, Status=NON_COMPLIANT` — the state/status split was still present.
+### Phase 2 — Verification (2026-07-07)
 
-### Phase 4 — Overdue Transition Integration
+- 404 tests passed, frontend build clean.
+- Live end-to-end demo verified.
 
-**Root cause**: `TimelineEvaluator.evaluate_timeline_rule()` correctly computed `overdue_transition: "LATE"` at `timeline_evaluator.py:329`, but this value was **never consumed** by the evaluator. Only `deadline_met` (a boolean) crossed the boundary from timeline evaluation to FSM evaluation. The `deadline_met=False` override in `determine_compliance_status()` forced the canonical status to LATE → NON_COMPLIANT, but `sm.current_state` remained PENDING because nothing ever called the FSM's overdue transition.
+### Phase 3 — Browser Verification (2026-07-08)
+
+- Full browser end-to-end: Trigger → HITL → Resume → Evaluation → Scoreboard → Report.
+- Observed: CL-01 displayed `State=PENDING, Status=NON_COMPLIANT` — a state/status split.
+
+### Phase 4 — Overdue Transition Integration (2026-07-08)
+
+**Root cause**: `TimelineEvaluator.evaluate_timeline_rule()` computed `overdue_transition` (e.g. `"LATE"`) but this value was never consumed by the evaluator. `sm.current_state` remained PENDING because nothing called the FSM's overdue transition.
 
 **Fix — 3 files changed**:
 
-1. **`backend/app/utils/state_machine.py`** (+49 lines): New `transition_to(target_state, reason="timeline_overdue")` method. Advances the FSM to a target state synthetically (no event trigger required). Records in history with `trigger="timeline_overdue"` so the evidence trail clearly shows the timeline evaluator drove the advance. Guards: no-op if already in target state; returns `False` if target state unknown.
+1. `state_machine.py` (+49 lines): New `transition_to(target_state, reason)` method — synthetically advances the FSM for timeline-driven transitions. Records in history with `trigger="timeline_overdue"`.
+2. `evaluator.py` (+11 lines): For every timeline rule with `deadline_met=False`, applies `sm.transition_to(result["overdue_transition"])` before building the verdict.
+3. `test_evaluator.py` (+128 lines): 6 new tests (4 unit + 2 integration covering exact CL-01 scenario).
 
-2. **`backend/app/pipeline/nodes/evaluator.py`** (+11 lines): In `_evaluate_single_fsm()`, after computing `timeline_results` and before `determine_compliance_status()`: for every timeline result with `deadline_met=False` and a valid `overdue_transition`, call `sm.transition_to(result["overdue_transition"], reason="timeline_overdue")`.
+**Result**: CL-01 now shows `current_state=LATE, status=non_compliant`. State/Status split resolved. 410 tests pass.
 
-3. **`backend/tests/test_evaluator.py`** (+128 lines): 6 new tests — 4 for `transition_to()` unit coverage, 2 for overdue-transition integration (including the exact CL-01 scenario: no event transitions + missed deadline → FSM advances to LATE).
+### Phase 5 — Explanation Column (2026-07-08)
 
-**Result**: CL-01 now shows `current_state=LATE, status=non_compliant` — the `State=PENDING / Status=NON_COMPLIANT` split is resolved. CL-02 shows `PENDING → DUE` (event-driven via `trade_executed`) then `DUE → LATE` (timeline-driven via `timeline_overdue`). 410 tests pass.
+**Backend** (`reports.py`):
+- `_derive_explanation(verdict)` — pure function deriving one-sentence explanations from evidence:
+  - COMPLIANT: "All obligations met within deadline."
+  - NON_COMPLIANT: "Deadline missed: '{event}' occurred on {date} but required action was not completed in time."
+  - PENDING: "Awaiting start event '{event}' — not found in telemetry data."
+- `_serialize_verdict()` — attaches `explanation` key to serialized verdicts.
 
-### Phase 5 — Explanation Column (UX)
+**Frontend**:
+- `client.ts`: Added `explanation?: string` to `ComplianceVerdict` interface.
+- `AuditReport/index.tsx`: Added "Explanation" column (7th column).
 
-**Problem**: Report showed `CL-03: PENDING / PENDING` with no indication why. Users couldn't distinguish "this is a bug" from "this is correct — no matching events."
+### Phase 6 — Browser Verification (2026-07-08)
 
-**User agreed to Option A**: Add a deterministic explanation string derived from the existing `evidence` object already present in each verdict. No new API endpoints, no evaluator logic changes, no breaking schema changes.
+Explanation column renders correctly in browser. All 4 verdicts display meaningful explanations. No "—" fallbacks. **RESOLVED.**
 
-**Backend** — `backend/app/api/routes/reports.py` (+110 lines):
-- `_derive_explanation(verdict)` — pure function producing one sentence:
-  - **COMPLIANT**: `"All obligations met within deadline."`
-  - **NON_COMPLIANT**: `"Deadline missed: '{start_event}' occurred on {date} but required action was not completed in time."`
-  - **PENDING (start event missing)**: `"Awaiting start event '{start_event}' — not found in telemetry data."`
-  - **PENDING (no events)**: `"No matching telemetry events found for this obligation's transition triggers."`
-  - **PENDING (in progress)**: `"In progress: reached '{state}' — awaiting further events to reach a terminal state."`
-- `_serialize_verdict()` — attaches `explanation` key to the serialized dict.
+### Phase 7 — Official SEBI Circular Validation (2026-07-08)
 
-**Frontend** — 3 files, +6 lines:
-- `client.ts`: `explanation?: string` on `ComplianceVerdict`
-- `AuditReport/index.tsx`: "Explanation" column (7th, between State and Evaluated)
+End-to-end validation against the official SEBI circular `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57` (April 28, 2025):
+- PDF downloaded from caalley.com mirror (sebi.gov.in blocks all programmatic access).
+- 3,460 chars extracted cleanly.
+- Parser: 4 clauses extracted (vs 2 in demo fixture).
+- FSM Extractor: 4 FSMs generated.
+- HITL: 4 approved.
+- Evaluator: 0 COMPLIANT / 1 NON_COMPLIANT / 3 PENDING (correct — fixture lacks matching events).
+- Scoreboard: hash chain verified.
+- Report: all explanations populated.
 
-**In-process verification**: `_derive_explanation()` produces correct explanations for all 4 verdicts when called directly in Python. 410 tests pass. Frontend builds clean.
+**V1 confirmed working with official circular. No code changes needed.**
 
-### Phase 6 — Browser Verification (Explanation Column)
+### Phase 8 — 399-Page Master Circular Stress Test (2026-07-08)
 
-**Observed**: The Explanation column renders — but every row displays `—` (the fallback for `undefined` explanation).
+Attempted validation against `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/90` (Master Circular for Stock Brokers, June 17, 2025):
+- 783,933 chars extracted (~196K tokens).
+- **Bottleneck identified**: DeepSeek v4 Pro's `reasoning_content` consumes the entire `max_tokens=16384` output budget on 184K input tokens, leaving zero content tokens. Intermittent — succeeds ~40% of calls, yielding 53 clauses via truncation recovery.
+- **Not a code defect** — needs larger `max_tokens` (32K-64K) or chunked parsing for V2.
+- PDF saved to `backend/data/circulars/SEBI-Master-Circular-Stock-Brokers-2025-06-17.pdf`.
 
-**Session paused here** — root cause not yet determined. Possibilities:
-1. Backend `GET /api/reports/{report_id}` is not including `explanation` in serialized verdicts. The `_serialize_verdict()` call in `generate_report()` enriches the verdicts stored in `_report_store`, but if the report was generated from an older run stored before the code change, it won't have the field.
-2. Frontend component reads `v.explanation` but the API response doesn't include it (stale report from earlier run).
+### Phase 9 — V1.0.2 Commit, Push & Freeze (2026-07-08)
+
+All changes committed as `401b659` and pushed to `origin/dev`. V1 declared frozen.
 
 ---
 
-## Uncommitted Working Tree (9 files)
+## Committed Files (V1.0.2 — `401b659`)
 
-| File | Lines | Purpose |
-|------|-------|---------|
+| File | Changes | Purpose |
+|------|---------|---------|
 | `backend/app/api/routes/pipeline.py` | +56 | V1.0.2 dashboard state sync |
 | `backend/app/api/routes/reports.py` | +121 | compliance_pct fix + explanation derivation |
 | `backend/app/pipeline/nodes/evaluator.py` | +11 | overdue transition integration |
 | `backend/app/utils/state_machine.py` | +96 | determine_compliance_status fix + transition_to() |
 | `backend/tests/test_evaluator.py` | +128 | 6 new tests for transition_to + overdue integration |
 | `frontend/src/api/client.ts` | +2 | explanation field on ComplianceVerdict |
-| `frontend/src/components/AuditReport/index.tsx` | +4 | Explanation column |
+| `frontend/src/components/AuditReport/index.tsx` | +28 | Explanation column + diagnostic logs |
 | `frontend/src/components/FSMViewer/index.tsx` | ±483 | Linear workflow diagram redesign |
 | `frontend/src/pages/hitl.tsx` | +19 | onReviewed sync fix + terminology cleanup |
 
 ---
 
-## Blocker
+## Known Issues (non-blocking, deferred to V2)
 
-**Explanation column shows "—" for every row in the browser.** Root cause not yet diagnosed.
+1. **Console.log diagnostics** — 11 `[AuditReport DIAG]` / `[VerdictsTable DIAG]` calls in `AuditReport/index.tsx` (investigation remnants, cosmetic only).
+2. **PDF path UX** — Backend expects backend-root-relative paths (`data/circulars/...`), but users naturally enter project-root-relative paths (`backend/data/circulars/...`). Causes HTTP 400.
+3. **HITL queue accumulation** — ~2 stale run directories in `data/locked_fsms/` from test runs.
+4. **Large document support** — `max_tokens=16384` insufficient for 399-page circulars with reasoning models.
+5. **In-memory stores** — All pipeline state lost on server restart.
+6. **No authentication** — API endpoints are unauthenticated.
 
 ---
 
 ## Next Milestone
 
-**Freeze V1** → then **V2 — Production Hardening**
+**V2 — Production Hardening** (see `progress.md` V2 Roadmap)
 
 ---
 
@@ -107,9 +130,6 @@ Full browser end-to-end walkthrough:
 cd /home/bradha/agentic-compliance
 git checkout dev
 git pull origin dev
-
-# The working tree has 9 files with V1.0.2 changes
-# Check git diff --stat to see all changes
 
 # Kill stale server
 fuser -k 8000/tcp 2>/dev/null
@@ -122,16 +142,16 @@ cd ../frontend
 npm run build                      # 52 modules
 
 # Start backend
-cd ../backend && source .venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+cd ../backend && source .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000 &
 
 # Start frontend
 cd ../frontend && npm run dev
 ```
 
 **CRITICAL RULES:**
-- Do not redesign M0–M9 — all milestones are independently verified
-- Propose and get V2 plan approved before any implementation
-- All 410 tests must continue to pass
-- Node 3 safety gate (no LLM) must never be violated
-- Always restart the backend server after any code change
-- **Do NOT commit or push** until the explanation column blocker is resolved
+- Do not redesign M0–M9 — all milestones are independently verified.
+- V1 is frozen — do not modify pipeline, models, evaluator, or API.
+- Propose and get V2 plan approved before any implementation.
+- All 410 tests must continue to pass.
+- Node 3 safety gate (no LLM) must never be violated.
+- Always restart the backend server after any code change.

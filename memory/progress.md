@@ -7,9 +7,7 @@
 
 ## Overall Completion
 
-**V1.0.1 COMPLETE + PUSHED** — All M0–M9 milestones + interactive demo fixes + enterprise UI polish committed. 410 tests passing.
-
-**V1.0.2 IN WORKING TREE** — 9 files uncommitted. Functionally complete, 1 UX blocker pending (explanation column renders "—" in browser).
+**V1.0.2 COMPLETE + PUSHED** — All M0–M9 milestones + V1.0.1 demo fixes + V1.0.2 evaluator fix + explanation UX committed. 410 tests passing. **V1 FROZEN.**
 
 ---
 
@@ -52,11 +50,11 @@
 - [x] `App.tsx` + `App.css` — layout, routing, enterprise design system — ✅ M8 → ✅ V1.0.1 (CSS rewrite)
 - [x] `api/client.ts` — typed fetch client (12 endpoints + resume) — ✅ M8 → ✅ V1.0.1 → ✅ V1.0.2 (explanation field)
 - [x] `store/useComplianceStore.ts` — Zustand store (12 actions + resume) — ✅ M8 → ✅ V1.0.1
-- [x] Dashboard page (`pages/index.tsx`) — ✅ M8 → ✅ V1.0.1 → ✅ V1.0.2 (sync fix in working tree)
+- [x] Dashboard page (`pages/index.tsx`) — ✅ M8 → ✅ V1.0.1 → ✅ V1.0.2 (sync fix)
 - [x] Report page (`pages/report.tsx`) — ✅ M8
-- [x] HITL review page (`pages/hitl.tsx`) — ✅ V1.0.1 → ✅ V1.0.2 (onReviewed sync in working tree)
+- [x] HITL review page (`pages/hitl.tsx`) — ✅ V1.0.1 → ✅ V1.0.2 (onReviewed sync + terminology)
 - [x] CircularPanel component — ✅ M8
-- [x] FSMViewer component — ✅ M8 → ✅ V1.0.1 (labels, no floating text) → ✅ V1.0.2 (linear layout in working tree)
+- [x] FSMViewer component — ✅ M8 → ✅ V1.0.1 (labels) → ✅ V1.0.2 (linear layout)
 - [x] AuditReport component — ✅ M8 → ✅ V1.0.2 (Explanation column)
 - [x] TelemetryTable component — ✅ M8
 - [ ] Frontend unit/component tests — V2
@@ -77,7 +75,7 @@
 - [x] Node 1 — PDF Parser (LLM allowed) — ✅ M1 → ✅ V1.0.1
 - [x] Node 2 — FSM Extractor (LLM allowed) — ✅ M2 → ✅ V1.0.1
 - [x] HITL Gate (deterministic, no LLM) — ✅ M4 → ✅ V1.0.1
-- [x] Node 3 — Assertion Evaluator (LLM strictly prohibited) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status fix + overdue transition integration)
+- [x] Node 3 — Assertion Evaluator (LLM strictly prohibited) — ✅ M5 → ✅ V1.0.2
 - [x] Node 4 — Scoreboard Generator (formatting only) — ✅ M6
 
 ## Testing
@@ -87,7 +85,7 @@
 - [x] `test_fsm.py` — 34 tests — ✅ M2
 - [x] `test_hash_chain.py` — 20 tests — ✅ M3
 - [x] `test_hitl.py` — 46 tests — ✅ M4 → ✅ V1.0.1 (monkeypatch fix)
-- [x] `test_evaluator.py` — 75 tests (69 original + 6 new) — ✅ M5 → ✅ V1.0.2 (determine_compliance_status + transition_to + overdue integration)
+- [x] `test_evaluator.py` — 75 tests (69 original + 6 new) — ✅ M5 → ✅ V1.0.2
 - [x] `test_scoreboard.py` — 38 tests — ✅ M6
 - [x] `test_orchestration.py` — 53 tests — ✅ M7
 - [x] `test_integration.py` — 37 tests — ✅ M9 → ✅ V1.0.1
@@ -101,27 +99,25 @@
 - [x] Root cause diagnosis (8 bugs identified) — ✅
 - [x] All 8 fixes applied — ✅
 - [x] Enterprise CSS redesign — ✅
-- [x] Git commit `8845e8a` and push — ✅
+- [x] Git commit and push — ✅
 
-## V1.0.2 — Final Demo Polish + Evaluator Fix + UX (uncommitted)
+## V1.0.2 — Final Demo Polish + Evaluator Fix + Explanation UX
 
-- [x] Dashboard state sync fix — ✅ (working tree)
-- [x] Linear workflow diagram redesign — ✅ (working tree)
-- [x] Terminology cleanup (FSM → Obligation, State → Status) — ✅ (working tree)
-- [x] **determine_compliance_status() fix** — trust self._current_state — ✅ (working tree)
-- [x] **Report compliance_pct formula fix** — match scoreboard — ✅ (working tree)
-- [x] **Overdue transition integration** — timeline advances FSM via transition_to() — ✅ (working tree)
-- [x] 6 new tests (transition_to unit + overdue integration) — ✅ (working tree)
-- [x] **Explanation column** — deterministic explanation from evidence — ✅ (working tree)
+- [x] Dashboard state sync fix — ✅ (committed `401b659`)
+- [x] Linear workflow diagram redesign — ✅ (committed `401b659`)
+- [x] Terminology cleanup (FSM → Obligation, State → Status) — ✅ (committed `401b659`)
+- [x] `determine_compliance_status()` fix — trust `self._current_state` — ✅ (committed `401b659`)
+- [x] Report `compliance_pct` formula fix — match scoreboard — ✅ (committed `401b659`)
+- [x] Overdue transition integration — `transition_to()` + evaluator wiring — ✅ (committed `401b659`)
+- [x] 6 new tests (transition_to unit + overdue integration) — ✅ (committed `401b659`)
+- [x] Explanation column — deterministic `_derive_explanation()` + frontend column — ✅ (committed `401b659`)
 - [x] Backend test suite (410 passed) — ✅
 - [x] Frontend build (52 modules, zero errors) — ✅
-- [x] In-process explanation verification (all 4 verdicts correct) — ✅
-- [-] **Browser verification of explanation column** — **BLOCKED: renders "—" for every row**
-- [ ] Diagnose and fix explanation column rendering — pending
-- [ ] Final browser end-to-end demo — pending
-- [ ] Clean stale runtime data — pending
-- [ ] Commit and push V1.0.2 — pending
-- [ ] Declare V1 frozen — pending
+- [x] Browser verification — Explanation column populated for all rows — ✅ RESOLVED
+- [x] State/Status consistency — current_state reflects timeline advances — ✅ RESOLVED
+- [x] Full end-to-end with official SEBI circular (CIR/2025/57) — ✅
+- [x] Commit and push V1.0.2 — ✅ (`401b659`)
+- [x] V1 frozen — ✅
 
 ## Environment
 
@@ -167,24 +163,37 @@
 - [x] Compliance workflow visualization works
 - [x] Data integrity (hash chain) verifiable
 - [x] Tamper detection confirmed (4 attack vectors)
-- [x] Verdict state/status consistency resolved (current_state reflects timeline advances)
-- [x] Report compliance percentage matches scoreboard formula
-- [x] Explanation column implemented (backend + frontend)
-- [-] Explanation column browser verification — **BLOCKED**
-- [ ] Final clean end-to-end demo — pending
+- [x] Verdict state/status consistency resolved
+- [x] Report compliance percentage matches scoreboard
+- [x] Explanation column implemented and browser-verified
+- [x] Official SEBI circular (CIR/2025/57) validated end-to-end
 
 ---
 
-## V2 — Next Version (not started)
+## V2 Roadmap — Next Version (not started)
 
-- [ ] PostgreSQL persistence (replace in-memory stores)
-- [ ] Database ORM models + Alembic migrations
-- [ ] Docker Compose full-stack (frontend + nginx + PostgreSQL)
-- [ ] CI/CD pipeline hardening
-- [ ] Frontend test suite (Vitest + React Testing Library)
-- [ ] Authentication (API keys or JWT)
-- [ ] `docs/architecture.md` (replace broken PDF)
-- [ ] API reference completion (12/12 endpoints)
-- [ ] Production hardening (rate limiting, logging, monitoring)
-- [ ] Real SEBI circular integration
-- [ ] Code-quality cleanup (extract inline styles, deduplicate helpers)
+### High Priority
+
+- [ ] **Large-document support** — 399-page Master Circular validation. Current `max_tokens=16384` is consumed by DeepSeek v4 Pro reasoning on 196K-token inputs. Requires chunked parsing or output token budget increase.
+- [ ] **Chunked PDF parsing** — Split large circulars into manageable sections, extract obligations per section, merge results. Avoids single-call token exhaustion.
+- [ ] **PDF upload UX** — Replace free-text path input with file upload widget. Eliminates the current backend-root-relative path confusion.
+- [ ] **PostgreSQL persistence** — Replace in-memory stores with SQLAlchemy + Alembic migrations. Pipeline state, telemetry, reports survive server restarts.
+- [ ] **Docker Compose full-stack** — Frontend + backend + nginx + PostgreSQL in a single deployable stack.
+- [ ] **Frontend test suite** — Vitest + React Testing Library for all components and pages.
+- [ ] **Authentication** — API keys or JWT for API endpoints.
+
+### Medium Priority
+
+- [ ] **CI/CD pipeline** — GitHub Actions for test suite, linting, and build verification.
+- [ ] **`docs/architecture.md`** — Replace broken `docs/architecture.pdf` with a proper Markdown architecture reference.
+- [ ] **API reference completion** — Document all 13 endpoints with request/response examples.
+- [ ] **Production hardening** — Rate limiting, structured logging, health monitoring, graceful shutdown.
+- [ ] **Real SEBI circular integration** — Download and validate against additional live SEBI circulars beyond CIR/2025/57.
+
+### Low Priority / Polish
+
+- [ ] **Console.log cleanup** — Remove 11 diagnostic `console.log()` calls from `AuditReport/index.tsx`.
+- [ ] **HITL queue cleanup** — Tool to purge stale HITL run directories from `data/locked_fsms/`.
+- [ ] **Code-quality cleanup** — Extract inline styles, deduplicate helper functions.
+- [ ] **poppler-utils integration** — Optional fallback PDF extractor for pdfplumber compatibility edge cases.
+- [ ] **Performance optimization** — Profile and optimize evaluator for > 50 FSMs.

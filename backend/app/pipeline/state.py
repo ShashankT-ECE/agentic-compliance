@@ -124,6 +124,11 @@ class CompliancePipelineState(BaseModel):
         default=None,
         description="Raw text extracted from the circular PDF (Node 1 output)",
     )
+    chunks: list[str] | None = Field(
+        default=None,
+        description="Pre-retrieved text chunks from RAG pipeline (V2 M1 — "
+                    "skips full PDF extraction when present)",
+    )
     obligation_clauses: list[ObligationClause] = Field(
         default_factory=list,
         description="Structured obligations parsed from the circular (Node 1 output)",

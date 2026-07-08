@@ -1,0 +1,25 @@
+# Agentic Compliance — RAG Configuration (V2 M1)
+# Default values; override per-environment as needed.
+
+chunking:
+  target_chunk_size: 1500       # characters per chunk
+  min_chunk_size: 500            # merge chunks smaller than this
+  max_chunk_size: 3000            # split chunks larger than this
+  never_split_mid_paragraph: true
+
+embedding:
+  provider: local                 # local | openai
+  model_name: "BAAI/bge-small-en-v1.5"
+  device: cpu                     # cpu | cuda
+  batch_size: 32
+
+vector_store:
+  provider: chroma                # chroma | pgvector
+  chroma:
+    persist_directory: "data/chroma_db"
+    collection_name: "sebi_circulars"
+
+retrieval:
+  default_top_k: 10
+  max_top_k: 50
+  similarity_threshold: 0.3       # minimum cosine similarity to include

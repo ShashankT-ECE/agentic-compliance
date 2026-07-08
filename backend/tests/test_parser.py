@@ -518,13 +518,13 @@ class TestParseCircular:
     @pytest.mark.asyncio
     async def test_empty_text_raises(self):
         client = MockLLMClient()
-        with pytest.raises(ValueError, match="raw_text is empty"):
+        with pytest.raises(ValueError, match="No input text provided"):
             await parse_circular("", self.CIRCULAR_REF, client)
 
     @pytest.mark.asyncio
     async def test_whitespace_only_text_raises(self):
         client = MockLLMClient()
-        with pytest.raises(ValueError, match="raw_text is empty"):
+        with pytest.raises(ValueError, match="Input text is empty"):
             await parse_circular("   \n  \t  ", self.CIRCULAR_REF, client)
 
     @pytest.mark.asyncio

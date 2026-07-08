@@ -66,7 +66,7 @@
 
 - **Decision**: Canonical V1 regulatory source is **SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57** (28 April 2025), subject *"Timelines for collection of Margins other than Upfront Margins."*
 - **Rationale**: Contains timeline-based obligations (T+1, advance-of-trade) that map cleanly to the HybridFSM model.
-- **Status**: Accepted.
+- **Status**: Accepted. Validated end-to-end against official PDF on 2026-07-08.
 
 ### 2026-07-03 — Deterministic FSM execution: first-match transition resolution
 
@@ -107,101 +107,146 @@
 
 ### 2026-07-04 — LangGraph + FastAPI as M7 orchestration layer
 
-- **Decision**: Wire the pipeline via LangGraph's `StateGraph` using `CompliancePipelineState` (Pydantic model) as the shared state. Expose operations through FastAPI REST endpoints. Run nodes sequentially outside the compiled graph's full invoke cycle to support async LLM calls and HITL pause/resume.
-- **Rationale**: LangGraph provides the DAG structure and conditional routing. FastAPI provides the HTTP API for external triggers and HITL review. The manual sequential execution (rather than full `graph.invoke()`) supports async LLM calls and the pause/resume pattern needed for human review.
+- **Decision**: Wire the pipeline via LangGraph's `StateGraph` using `CompliancePipelineState` (Pydantic model) as the shared state. Expose operations through FastAPI REST endpoints.
+- **Rationale**: LangGraph provides the DAG structure and conditional routing. FastAPI provides the HTTP API. Manual sequential execution supports async LLM calls and HITL pause/resume.
 - **Alternatives considered**: Full LangGraph invoke with async node support, Celery task queue, hand-rolled orchestrator.
-- **Impact**: `build_pipeline_graph()` defines the topology; `PipelineRunner` executes nodes sequentially. State is persisted in-memory (V1) → PostgreSQL (V2).
 - **Status**: Implemented in M7.
 
 ### 2026-07-04 — Pydantic state ↔ dict bridge for node compatibility
 
-- **Decision**: LangGraph graph uses `CompliancePipelineState` (Pydantic model) as state type. Node wrapper functions in `graph.py` convert to dict manually (preserving Pydantic sub-models — ObligationClause, HybridFSM, LockedFSM) before calling existing M1-M4 node functions that expect dict state.
-- **Rationale**: M1-M4 node functions were written before M7 and expect `dict.get()` access. Converting the state at the graph boundary avoids modifying all existing node functions. The initial implementation used `model_dump()` which serialized sub-models to plain dicts, breaking downstream nodes. Fixed in M9 to build dicts field-by-field.
+- **Decision**: LangGraph graph uses `CompliancePipelineState` (Pydantic model). Node wrapper functions convert to dict manually before calling pre-M7 node functions.
+- **Rationale**: M1-M4 node functions were written before M7 and expect `dict.get()` access. Converting at the graph boundary avoids modifying all existing node functions.
 - **Status**: Implemented in `graph.py` (`_state_to_dict()` — fixed in M9).
 
 ### 2026-07-04 — In-memory stores for V1 (database in V2)
 
-- **Decision**: Pipeline run state, telemetry events, and reports use in-memory stores (`dict` with module-level accessors) for V1. Replace with PostgreSQL via SQLAlchemy in V2.
-- **Rationale**: In-memory stores enable fast iteration during development and testing. The store accessor pattern (`_get_store()` / `_set_store()`) makes the swap to a database mechanical — only the store implementation changes, not the API or business logic.
+- **Decision**: Pipeline run state, telemetry events, and reports use in-memory stores for V1. Replace with PostgreSQL via SQLAlchemy in V2.
+- **Rationale**: In-memory stores enable fast iteration during development. Store accessor pattern makes the swap mechanical.
 - **Status**: Implemented. V2 migration planned.
 
 ### 2026-07-04 — Frontend stack: React 19 + TypeScript strict + Vite + Zustand + native fetch
 
-- **Decision**: Frontend uses React 19 with TypeScript strict mode, Vite for build, Zustand for state management, and native `fetch` for HTTP (no Axios). CSS is custom properties-based (no Tailwind).
-- **Rationale**: Zustand is lightweight and idiomatic for React 19. Native fetch avoids an extra dependency. CSS custom properties provide theming without a build-time utility framework.
+- **Decision**: Frontend uses React 19 with TypeScript strict mode, Vite for build, Zustand for state management, and native `fetch` for HTTP.
+- **Rationale**: Zustand is lightweight and idiomatic for React 19. Native fetch avoids an extra dependency. CSS custom properties provide theming.
 - **Alternatives considered**: Axios, Redux, Tailwind CSS, Next.js.
 - **Status**: Implemented in M8.
 
-### 2026-07-04 — Demo mode: MockLLMClient with canned responses for reliable demos
+### 2026-07-04 — Demo mode: MockLLMClient with canned responses
 
-- **Decision**: The demo script (`scripts/run_demo.sh`) and integration tests use `MockLLMClient` / `MultiMockLLMClient` with canned JSON responses that match the canonical V1 circular. No real LLM API key is required.
-- **Rationale**: Demos must run reliably without depending on external API availability, network latency, or API key configuration. The canned responses are the same data the real LLM would produce — they exercise the exact same parser and FSM extractor code paths.
-- **Impact**: The demo script is self-contained and deterministic (same hash chain root every run). Developers can validate the full pipeline in under 2 seconds with zero configuration.
+- **Decision**: The demo script and integration tests use `MockLLMClient` / `MultiMockLLMClient` with canned JSON responses. No real LLM API key required.
+- **Rationale**: Demos must run reliably without depending on external API availability. Canned responses exercise the exact same code paths.
 - **Status**: Implemented in M9.
 
-### 2026-07-04 — Integration test strategy: in-process PipelineRunner, no HTTP server
+### 2026-07-04 — Integration test strategy: in-process PipelineRunner
 
-- **Decision**: Integration tests call `PipelineRunner` directly (in-process) rather than going through the FastAPI HTTP layer. Telemetry and report endpoints are tested via `TestClient`.
-- **Rationale**: Pipeline execution is the primary integration concern. Testing via HTTP adds latency and complexity without additional coverage. The HTTP layer is independently tested in `test_orchestration.py` (53 tests).
-- **Status**: Implemented in `test_integration.py` (26 tests, M9).
+- **Decision**: Integration tests call `PipelineRunner` directly (in-process) rather than through FastAPI HTTP. Telemetry/report endpoints tested via `TestClient`.
+- **Rationale**: Pipeline execution is the primary integration concern. HTTP layer is independently tested in `test_orchestration.py` (53 tests).
+- **Status**: Implemented in `test_integration.py` (37 tests).
 
-### 2026-07-06 — Disk-authoritative HITL list (no in-memory store dependency)
+### 2026-07-06 — Disk-authoritative HITL list
 
-- **Decision**: `list_hitl_runs()` (no `run_id` path) reads exclusively from disk — `data/locked_fsms/` — rather than the in-memory `_run_store`. Disk is the authoritative source.
-- **Rationale**: The in-memory store is volatile (lost on restart, accumulates stale entries). Disk is durable and verifiable. The prior two-source approach (memory + disk supplement) leaked stale runs.
+- **Decision**: `list_hitl_runs()` reads exclusively from disk (`data/locked_fsms/`) rather than in-memory `_run_store`.
+- **Rationale**: In-memory store is volatile. Disk is durable and verifiable. Prior dual-source approach leaked stale runs.
 - **Status**: Implemented in `pipeline.py`.
 
 ### 2026-07-06 — Truncated JSON array recovery in parser
 
-- **Decision**: Added "Attempt 4" to `_extract_json_from_response()` — character-by-character depth tracking to recover complete top-level JSON objects from truncated LLM responses. Salvages partial results instead of failing entirely.
-- **Rationale**: Real LLM APIs can truncate responses when `max_tokens` is exceeded. Recovering 2 of 3 clauses is better than losing all 3. Combined with `max_tokens=16384` (up from 4096) as defense in depth.
-- **Status**: Implemented in `parser.py`. 4 regression tests added.
+- **Decision**: Added "Attempt 4" to `_extract_json_from_response()` — character-by-character depth tracking to recover complete top-level JSON objects from truncated LLM responses.
+- **Rationale**: Real LLM APIs can truncate responses when `max_tokens` is exceeded. Recovering partial results is better than losing everything.
+- **Status**: Implemented in `parser.py`. 4 regression tests added. Verified recovering 53 clauses from 399-page master circular output.
 
 ### 2026-07-06 — Data path resolution: `backend/data/` not `backend/app/data/`
 
-- **Decision**: All `__file__`-based data path constants use 4× `.parent` (reaching `backend/`) instead of 3× `.parent` (which reached `backend/app/`).
-- **Rationale**: The `.gitignore` was written for `backend/data/` — that was always the intended location. The code was off by one directory level. Fixing the code rather than the `.gitignore` preserves the original intent.
+- **Decision**: All `__file__`-based data path constants use 4× `.parent` (reaching `backend/`).
+- **Rationale**: The `.gitignore` was written for `backend/data/` — fixing code rather than `.gitignore` preserves original intent.
 - **Status**: Implemented in `hitl_gate.py`, `fsm_extractor.py`, `pipeline.py`.
 
-### 2026-07-06 — Enterprise UI design system (blue/slate/white palette)
+### 2026-07-06 — Enterprise UI design system
 
-- **Decision**: Frontend CSS redesigned with enterprise palette (blue brand #2563eb, slate neutrals #0f172a–#f8fafc). FSM terminology replaced with "Compliance Obligation" in presentation layer. TypeScript interfaces and backend models unchanged.
-- **Rationale**: Target audience is SEBI compliance officers — the UI must feel like a professional regulatory tool, not a developer prototype. Technical terminology (FSM, state machine) is confusing to non-technical users.
-- **Status**: Implemented in V1.0.1 (committed). Additional polish in V1.0.2 working tree.
+- **Decision**: Frontend CSS redesigned with enterprise palette (blue brand #2563eb, slate neutrals). FSM terminology replaced with "Compliance Obligation" in presentation layer.
+- **Rationale**: Target audience is SEBI compliance officers — UI must feel like a professional regulatory tool.
+- **Status**: Implemented in V1.0.1. Additional polish in V1.0.2.
 
 ### 2026-07-06 — Fixed-position SVG workflow diagram (linear layout)
 
-- **Decision**: Replaced dynamic grid-based SVG state diagram with fixed-position linear layout: PENDING → DUE → LATE → NON_COMPLIANT, with COMPLIANT as a branch node above. No overlapping arrows.
-- **Rationale**: The grid layout produced curved overlapping arrows when states were connected in non-grid patterns. A fixed layout matching the actual business workflow is clearer for compliance review.
-- **Status**: Implemented in `FSMViewer/index.tsx` (V1.0.2 working tree).
+- **Decision**: Replaced dynamic grid-based SVG with fixed-position linear layout: PENDING → DUE → LATE → NON_COMPLIANT, with COMPLIANT as a branch node.
+- **Rationale**: Grid layout produced overlapping curved arrows. Fixed layout matching the business workflow is clearer.
+- **Status**: Implemented in `FSMViewer/index.tsx`.
 
 ### 2026-07-07 — determine_compliance_status() trusts FSM current state
 
-- **Decision**: `StateMachine.determine_compliance_status()` now returns `self._current_state` as the canonical status, rather than re-deriving it from `(is_terminal, has_transitions, deadline_met)`. The FSM's transitions — including timeline-driven overdue transitions — are the source of truth for where the machine landed. Only `deadline_met=False` overrides (to LATE).
-- **Rationale**: The old logic re-derived canonical status from structural properties (is_terminal, has_transitions) but ignored the FSM's actual current state. When the FSM reached LATE — which had an outgoing `grace_expired → NON_COMPLIANT` transition — the method saw "non-terminal + has transitions" and returned DUE, which mapped to PENDING. This caused ALL verdicts to display as PENDING regardless of the FSM's true state.
-- **Impact**: Verdicts now correctly show `non_compliant` when the FSM reaches LATE. The `current_state` and `status` fields are now consistent — `_map_status(LATE) → NON_COMPLIANT`. Regression tests (404) continue to pass. One previously-dormant verdict (CL-02) now correctly shows NON_COMPLIANT because its timeline rule detected a missed T+1 deadline.
-- **Status**: Implemented in `state_machine.py` (V1.0.2 working tree).
+- **Decision**: `StateMachine.determine_compliance_status()` returns `self._current_state` as the canonical status rather than re-deriving from structural properties.
+- **Rationale**: Old logic ignored the FSM's actual current state. When the FSM reached LATE, the method saw "non-terminal + has transitions" and returned DUE → PENDING.
+- **Impact**: Verdicts now correctly show `non_compliant` when FSM reaches LATE. State/Status consistency resolved.
+- **Status**: Implemented in `state_machine.py`.
 
 ### 2026-07-07 — Report compliance percentage matches scoreboard formula
 
-- **Decision**: Report `compliance_pct` now uses `compliant / (total - pending) * 100` (same as scoreboard's `compliance_rate`). When all verdicts are pending (evaluated=0), returns 100.0 ("nothing to fail yet").
-- **Rationale**: The old formula `compliant / total * 100` counted pending verdicts in the denominator, producing 0% even when nothing had been evaluated. The scoreboard correctly excluded pending verdicts. The inconsistency was confusing — the report and scoreboard should agree.
-- **Status**: Implemented in `reports.py` (V1.0.2 working tree).
+- **Decision**: Report `compliance_pct` uses `compliant / (total - pending) * 100` (same as scoreboard's `compliance_rate`).
+- **Rationale**: Old formula `compliant / total * 100` counted pending verdicts in denominator, producing 0% when nothing had been evaluated. Inconsistent with scoreboard.
+- **Status**: Implemented in `reports.py`.
 
 ### 2026-07-08 — Timeline overdue_transition applied to StateMachine before verdict construction
 
-- **Decision**: `TimelineEvaluator.evaluate_timeline_rule()` already computed `overdue_transition` (e.g. `"LATE"`) when a deadline was missed, but the evaluator never consumed it. Added `StateMachine.transition_to(target_state, reason)` to synthetically advance the FSM, and integrated it in `_evaluate_single_fsm()` so that every timeline rule with `deadline_met=False` applies its `overdue_transition` before the verdict is built.
-- **Rationale**: The `deadline_met=False` override in `determine_compliance_status()` forced the canonical status to LATE → NON_COMPLIANT, but `sm.current_state` remained PENDING because the FSM's overdue transition was never called. This created a `State=PENDING / Status=NON_COMPLIANT` split that was audibly inconsistent. The `overdue_transition` field was designed for exactly this purpose — it just needed to be wired into the evaluator.
-- **Impact**: `ComplianceVerdict.current_state` now accurately reflects the FSM's post-timeline state (LATE, not PENDING). The two subsystems (event-driven FSM and time-driven timeline) are now properly integrated — timeline results feed back into the FSM rather than bypassing it. Evidence trail records `trigger="timeline_overdue"` so auditors can distinguish event-driven from timeline-driven transitions.
-- **Status**: Implemented in `state_machine.py` and `evaluator.py` (V1.0.2 working tree). 6 new tests.
+- **Decision**: `StateMachine.transition_to(target_state, reason)` synthetically advances the FSM for timeline-driven transitions. Evaluator applies `overdue_transition` for every timeline rule with `deadline_met=False`.
+- **Rationale**: `deadline_met=False` forced canonical status to LATE but `sm.current_state` remained PENDING — created a `State=PENDING / Status=NON_COMPLIANT` split. The `overdue_transition` field was designed for this purpose.
+- **Impact**: `current_state` and `status` now consistent. Evidence trail records `trigger="timeline_overdue"` for auditability.
+- **Status**: Implemented in `state_machine.py` and `evaluator.py`. 6 new tests.
 
 ### 2026-07-08 — Deterministic explanation column for audit reports
 
-- **Decision**: Each verdict in the audit report now carries a human-readable `explanation` field derived from the existing `evidence` object. `_derive_explanation()` is a pure function — no LLM, no external state, deterministic. Displayed as an "Explanation" column in the frontend verdicts table.
-- **Rationale**: PENDING verdicts previously gave no indication why — users couldn't distinguish "this is a bug" from "this is correct — no matching telemetry events." The explanation (`"Awaiting start event 'circular_issued' — not found in telemetry data."`) makes the report self-explanatory without requiring an engineer to interpret FSM states and evidence trails.
-- **Alternatives considered**: Expandable detail rows (higher complexity, more clicks), tooltip on status badge (too hidden), separate "diagnostics" section (overkill for V1).
-- **Impact**: Backward compatible — `explanation` is optional on the TypeScript type. Reports generated before the change simply won't have the field. The explanation is stored in the in-memory `_report_store` alongside the verdict, so re-fetching the same report always returns the same explanation. No new API endpoints, no evaluator changes.
-- **Status**: Implemented in `reports.py`, `client.ts`, and `AuditReport/index.tsx` (V1.0.2 working tree). Browser verification pending — column renders but shows fallback "—" for all rows (root cause not yet diagnosed).
+- **Decision**: Each verdict carries a human-readable `explanation` field derived from the existing `evidence` object via `_derive_explanation()` — pure function, no LLM. Displayed as 7th column in audit report.
+- **Rationale**: PENDING verdicts gave no indication why — users couldn't distinguish bugs from correct behavior. Makes the report self-explanatory.
+- **Alternatives considered**: Expandable detail rows, tooltip on status badge, separate diagnostics section.
+- **Status**: Implemented in `reports.py`, `client.ts`, `AuditReport/index.tsx`. Browser-verified — all rows show correct explanations.
+
+### 2026-07-08 — V1 Freeze
+
+- **Decision**: Freeze V1 pipeline, models, evaluator, and API. No further changes to V1 components. All remaining issues deferred to V2.
+- **Rationale**: V1.0.2 is functionally complete — 410 tests pass, frontend builds clean, explanation column verified, official SEBI circular validated end-to-end. Further changes risk regression without corresponding value for the current demo.
+- **Impact**: V1 is immutable. V2 must be planned and approved before any implementation begins. V2 scope includes large-document support, PostgreSQL persistence, PDF upload UX, authentication, CI/CD, and production hardening.
+- **Status**: Accepted (2026-07-08).
+
+---
+
+## V2 Proposed Decisions (from `docs/v2_roadmap.md`)
+
+### 2026-07-08 — V2 Vector Database: Chroma (dev) → pgvector (production)
+
+- **Decision**: Use Chroma as the development/embedded vector store, migrate to pgvector colocated with PostgreSQL for production.
+- **Rationale**: Chroma requires zero infrastructure (pip install, in-process). pgvector eliminates a separate vector DB service — single PostgreSQL instance for relational + vector data. Migration is a config change via the `VectorStore` abstraction.
+- **Alternatives considered**: Qdrant (separate service, operational overhead), LanceDB (newer, smaller community), FAISS (no metadata filtering), Pinecone (vendor lock-in, data leaves environment).
+- **Impact**: M4 delivers both implementations. Dev loop stays fast (Chroma). Production gets single-DB simplicity (pgvector).
+- **Status**: Proposed — ratify before M4.
+
+### 2026-07-08 — V2 Chunking: Section-boundary-aware with overlap
+
+- **Decision**: Chunk regulatory PDFs at section/paragraph boundaries with configurable context overlap. Never split mid-paragraph.
+- **Rationale**: Regulatory meaning is defined by section/paragraph structure. Splitting "39.1.2 ... TMs/CMs will have time till settlement day [CHUNK BREAK] to collect margins" destroys obligation semantics. Fixed-size sliding windows are designed for prose, not legal text.
+- **Alternatives considered**: Recursive character splitting (LangChain default — breaks legal text), semantic chunking via embedding similarity (too expensive for initial chunking, better as post-process), agentic chunking (overkill for structured documents).
+- **Impact**: Chunks preserve legal integrity. Retrieval accuracy improves because each chunk is a self-contained regulatory unit. Cross-reference resolution (M7) benefits from clean section boundaries.
+- **Status**: Proposed — ratify before M2.
+
+### 2026-07-08 — V2 Embedding Model: bge-large-en-v1.5 (local default), text-embedding-3-small (optional)
+
+- **Decision**: `BAAI/bge-large-en-v1.5` (1024-dim) as the default embedding model running locally via sentence-transformers. `text-embedding-3-small` (1536-dim) as an opt-in alternative via API.
+- **Rationale**: BGE-large leads the MTEB retrieval benchmark for English text, handles legal/regulatory vocabulary well, and runs locally — no API cost, no data leaving the environment. Critical for compliance platforms where regulatory text may be sensitive. OpenAI option for higher quality when budget and data policies permit.
+- **Alternatives considered**: all-MiniLM-L6-v2 (384-dim, smaller/faster but weaker on legal text), voyage-law-2 (best legal embeddings but API-only, US-hosted — regulatory data sovereignty concern), text-embedding-3-large (highest quality OpenAI but 2× cost of small).
+- **Status**: Proposed — ratify before M4.
+
+### 2026-07-08 — V2 Hybrid Retrieval: RRF with BM25=0.4, Vector=0.6
+
+- **Decision**: Default reciprocal rank fusion weights of 0.4 (BM25) and 0.6 (vector), with per-query-type auto-detection and re-weighting.
+- **Rationale**: BM25 excels at exact references ("Para 39.1.2", "CIR/2025/57", "Section 11(1)"). Vector search excels at semantic queries ("margin collection deadline", "client onboarding requirements"). Most user queries are semantic, hence vector-weighted. Exact-reference queries are auto-detected (regex match on known reference patterns) and re-weighted to favor BM25.
+- **Alternatives considered**: BM25-only (misses semantic matches), vector-only (misses exact references), learning-to-rank (requires training data we don't have yet — V3 candidate).
+- **Status**: Proposed — ratify before M5.
+
+### 2026-07-08 — V2 Conflict Resolution: Detect automatically, resolve manually
+
+- **Decision**: Cross-circular obligation conflicts are detected and flagged automatically. Resolution (which obligation takes precedence) is always a human decision.
+- **Rationale**: Regulatory interpretation is inherently a legal determination. The platform can identify that Circular A says "T+2" and Circular B says "T+1" for the same obligation, but deciding which applies requires understanding of effective dates, rescission clauses, and regulatory intent — all of which require human judgment. Automatic resolution risks incorrect compliance verdicts with legal consequences.
+- **Alternatives considered**: Heuristic resolution (latest circular wins — too simplistic, ignores partial rescissions), LLM-based resolution (not deterministic, hard to audit — violates P1), always-flag (chosen approach).
+- **Status**: Proposed — ratify before M9.
 
 ---
 

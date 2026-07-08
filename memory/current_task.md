@@ -16,129 +16,112 @@ Brad (Friend — Windows + WSL2)
 
 ## Latest Commit
 
-`e533cff` — `docs: synchronize project memory after V1.0.2 investigation`
+`401b659` — `feat(v1.0.2): improve audit report explanations and evaluation flow`
 
 ## Repository State
 
-- **9 files modified, uncommitted** (all V1.0.2):
-  - 5 V1.0.2 polish files (pipeline sync, workflow diagram, HITL terminology, state_machine fix, reports fix)
-  - 2 overdue-transition integration files (evaluator.py, test_evaluator.py)
-  - 2 explanation-generation files (reports.py, AuditReport/index.tsx)
-  - 1 type-definition file (client.ts)
-- **410 tests pass, 0 fail**
-- **Frontend builds clean** (52 modules, zero errors)
-- **Nothing pushed** — all changes live in working tree only
+- **Working tree clean** — all V1.0.2 changes committed and pushed to `origin/dev`.
+- **410 tests pass, 0 fail.**
+- **Frontend builds clean** (52 modules, zero errors).
+- **V1 is frozen.**
 
 ---
 
 ## Current Feature
 
-**V1.0.2 — Final Demo Polish + Evaluator Fix + Explanation UX**
+**V2 Planning — Regulatory Intelligence Platform**
+
+The V2 roadmap (`docs/v2_roadmap.md`) defines 10 milestones (M1–M10) evolving the
+platform from single-circular compliance checking into a production-grade regulatory
+intelligence platform with RAG architecture, vector search, multi-circular support,
+diff agent, and full production deployment.
 
 ---
 
-## What Was Done Yesterday (2026-07-07)
+## V1.0.2 — COMPLETE ✅ (FROZEN)
 
-### Phase 1 — Diagnostic Investigation
-
-- Traced the "all PENDING" report bug through the full pipeline
-- Root cause: `StateMachine.determine_compliance_status()` re-derived canonical status from `(is_terminal, has_transitions)` instead of reading `self._current_state`
-- **Fix 1**: `state_machine.py` — `determine_compliance_status()` now trusts `self._current_state`
-- **Fix 2**: `reports.py` — Report `compliance_pct` now matches scoreboard formula
-
-### Phase 2 — Verification (2026-07-07)
-
-- 404 tests passed, frontend build clean
-- Live end-to-end demo verified
+All V1.0.2 work committed as `401b659` and pushed. V1 frozen — no further changes
+except critical bug fixes.
 
 ---
 
-## What Was Done Today (2026-07-08)
+## What Was Done
 
-### Phase 3 — Browser Verification
+### V1.0.2 — Final Demo Polish + Evaluator Fix + Explanation UX
 
-- Full browser end-to-end: Trigger → HITL → Resume → Evaluation → Scoreboard → Report
-- Observed: CL-01 and CL-02 → LATE / NON_COMPLIANT ✓
-- Observed: CL-03 and CL-04 → PENDING / PENDING ✓ (correct — no matching events in fixture)
-- **BUT**: CL-01 displayed `State=PENDING, Status=NON_COMPLIANT` — a state/status split
+All completed, committed, and pushed (`401b659`):
 
-### Phase 4 — Overdue Transition Integration
+- Dashboard state sync fix (`pipeline.py`)
+- Linear workflow diagram redesign (`FSMViewer/index.tsx`)
+- Terminology cleanup — FSM → Obligation, State → Status (`hitl.tsx`)
+- `determine_compliance_status()` fix — trusts `self._current_state` (`state_machine.py`)
+- Report `compliance_pct` formula fix — matches scoreboard (`reports.py`)
+- Overdue transition integration — `transition_to()` + evaluator wiring (`state_machine.py`, `evaluator.py`)
+- 6 new tests (transition_to unit + overdue integration) (`test_evaluator.py`)
+- Explanation column — deterministic `_derive_explanation()` + frontend column (`reports.py`, `AuditReport/index.tsx`, `client.ts`)
 
-**Root cause**: `TimelineEvaluator.evaluate_timeline_rule()` computed `overdue_transition` (e.g. `"LATE"`) but this value was never consumed. The `deadline_met=False` override forced the canonical status to LATE, but `sm.current_state` remained PENDING because nothing ever called the FSM's overdue transition.
+### Verified end-to-end with official SEBI circular
 
-**Fix**: Two changes:
-1. `state_machine.py`: New `transition_to(target_state, reason)` method — synthetically advances the FSM for timeline-driven transitions, recording in history with `trigger="timeline_overdue"`.
-2. `evaluator.py`: In `_evaluate_single_fsm()`, after timeline evaluation, for every rule with `deadline_met=False`, apply `sm.transition_to(result["overdue_transition"])` before building the verdict.
-3. `test_evaluator.py`: +6 tests (4 unit + 2 integration covering exact CL-01 scenario).
-
-**Result**: CL-01 now shows `current_state=LATE, status=non_compliant` — the split is resolved. 410 tests pass.
-
-### Phase 5 — Explanation Column (UX)
-
-**Problem**: PENDING verdicts gave no indication why. Users couldn't tell if it was a bug or a data gap.
-
-**Solution**: Option A — deterministic explanation string derived from the existing `evidence` object, displayed in the report.
-
-**Backend** (`reports.py`):
-- `_derive_explanation(verdict)` — pure function, one sentence per verdict:
-  - COMPLIANT: `"All obligations met within deadline."`
-  - NON_COMPLIANT: `"Deadline missed: 'trade_executed' occurred on 2025-05-12 but required action was not completed in time."`
-  - PENDING: `"Awaiting start event 'circular_issued' — not found in telemetry data."`
-- `_serialize_verdict()` — enriched to attach `explanation` key
-
-**Frontend**:
-- `client.ts`: Added `explanation?: string` to `ComplianceVerdict` interface
-- `AuditReport/index.tsx`: Added "Explanation" column (7th column)
+- Circular: `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57` (April 28, 2025)
+- Trigger → HITL → Resume → Evaluation → Scoreboard → Report
+- 4 verdicts: 2 NON_COMPLIANT (LATE), 2 PENDING
+- Explanation column populated for all rows — no "—" fallbacks
+- State/Status consistency: resolved
+- Hash chain: verified
 
 ---
 
-## Blocker
+## V1 Freeze — Final State
 
-**The Explanation column renders "—" for every row during browser verification.**
+V1.0.2 is frozen. No further changes to V1 pipeline, models, evaluator, or API.
 
-Root cause has NOT yet been determined. It could be:
-- The backend report API is not serializing the `explanation` field into the response.
-- The frontend is not reading an existing `explanation` field from the verdict data.
+The following known items are deferred to V2:
+- 11 diagnostic `console.log()` calls in `AuditReport/index.tsx` (non-functional, cosmetic only)
+- In-memory stores (lost on restart)
+- No authentication
+- Frontend test suite (Vitest + React Testing Library)
+- Docker Compose full-stack
+- `docs/architecture.pdf` (ASCII placeholder)
+- `poppler-utils` not installed
+
+---
+
+## Next Milestone
+
+**M1 — Regulatory RAG Architecture** (see `docs/v2_roadmap.md` for full plan)
 
 ---
 
 ## Exact Next Task
 
-1. **Inspect `GET /api/reports/{report_id}`** — call the endpoint and check whether serialized verdicts contain the `explanation` field.
-2. If missing → trace `_serialize_verdict()` path through report generation.
-3. If present → trace frontend rendering in `VerdictsTable`.
-4. **Fix only after identifying root cause.**
-5. Perform one final browser verification (confirm all 4 rows show correct explanations).
-6. **Commit V1.0.2** (all 9 files, descriptive message).
-7. **Push** to `origin dev`.
-8. **Synchronize memory files**.
-9. **Declare V1 frozen**.
-10. **Begin V2 planning**.
+1. **Ratify V2 roadmap** — review `docs/v2_roadmap.md` with both developers.
+2. **Ratify proposed ADRs** — vector DB (pgvector), chunking strategy, embedding model, hybrid retrieval weights, conflict resolution.
+3. **Begin M1 implementation** after roadmap and ADRs are approved.
 
 ---
 
 ## Remaining Known Issues
 
-- **Explanation column shows "—"** — root cause not yet diagnosed (blocker above).
-- **3 of 4 verdicts remain PENDING** — demo fixture lacks events matching `bye_laws_amended`, `dissemination_completed`, `margin_collected`, `circular_issued`. Fixture coverage gap — not a bug.
-- **HITL queue accumulates historical runs** — ~74 stale directories from test runs; cleanup needed.
+- **Console.log diagnostics** — ✅ Removed (2026-07-08).
+- **3 of 4 verdicts PENDING in demo** — fixture lacks events matching `bye_laws_amended`, `dissemination_completed`, `margin_collected`, `circular_issued`. Fixture coverage gap — not a bug.
+- **HITL queue accumulates historical runs** — stale directories from test runs; cleanup needed.
 - `docs/architecture.pdf` broken (ASCII placeholder) — V2.
 - `poppler-utils` not installed — V2.
 - In-memory stores (lost on restart) — V2 (PostgreSQL).
 - No authentication — V2.
-- Docker Compose incomplete — V2.
-- Frontend tests — V2.
+- Docker Compose incomplete — V2 (M10).
+- Frontend tests — V2 (M10).
+- Large-document support (399-page Master Circular) — V2 (M1-M6).
 
 ---
 
 ## Files Most Likely Needed Next
 
-1. `backend/app/api/routes/reports.py` — `_derive_explanation`, `_serialize_verdict`, and the report generation endpoint
-2. `frontend/src/components/AuditReport/index.tsx` — `VerdictsTable` component
-3. `frontend/src/api/client.ts` — `ComplianceVerdict` type definition
-4. `backend/app/pipeline/runner.py` — `get_run_state()` used by report endpoint
-5. `memory/session_handoff.md` — session handoff
-6. `memory/progress.md` — updated completion status
+1. `frontend/src/components/AuditReport/index.tsx` — console.log cleanup
+2. `backend/app/utils/llm_client.py` — max_tokens tuning for large documents
+3. `backend/app/pipeline/nodes/parser.py` — chunked parsing design
+4. `memory/progress.md` — V2 planning
+5. `docs/architecture.md` — V2 architecture
 
 ---
 
@@ -151,4 +134,4 @@ Root cause has NOT yet been determined. It could be:
 - V2 must be planned and approved before any implementation begins.
 - `backup-m5` branch has early-development stubs — do NOT merge into it.
 - Server must be restarted after any backend code change.
-- **Do NOT commit or push** until the explanation column blocker is resolved and browser verification succeeds.
+- **Do NOT modify V1 pipeline, models, evaluator, or API** — V1 is frozen.

@@ -29,6 +29,15 @@ cryptography>=42.0.0,<45.0.0
 # Configuration
 python-dotenv>=1.0.1,<2.0.0
 
+# RAG — Vector database (in-process, dev mode)
+chromadb>=0.5.0,<1.0.0
+
+# RAG — Local embeddings
+sentence-transformers>=3.0.0,<4.0.0
+
+# RAG — Configuration
+pyyaml>=6.0.1,<7.0.0
+
 # Testing
 pytest>=8.3.0,<9.0.0
 pytest-asyncio>=0.24.0,<1.0.0

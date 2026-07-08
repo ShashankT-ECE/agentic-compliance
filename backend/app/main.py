@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import pipeline, reports, telemetry
+from app.api.routes import pipeline, reports, telemetry, rag
 
 # ---------------------------------------------------------------------------
 # Load environment variables from .env file BEFORE any dependency initialisation
@@ -86,6 +86,7 @@ app.add_middleware(
 app.include_router(pipeline.router)
 app.include_router(telemetry.router)
 app.include_router(reports.router)
+app.include_router(rag.router)
 
 
 # -------------------------------------------------------------------------

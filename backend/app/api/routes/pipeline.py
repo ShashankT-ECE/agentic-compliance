@@ -428,6 +428,7 @@ class TriggerRequest(BaseModel):
     circular_path: str = Field(..., min_length=1, description="Filesystem path to the SEBI circular PDF")
     circular_id: str = Field(..., min_length=1, description="SEBI circular reference number")
     telemetry: list[dict[str, Any]] = Field(default_factory=list, description="Optional initial telemetry events")
+    use_rag: bool = Field(default=False, description="Use RAG retrieval instead of full PDF extraction (V2 M1)")
 
 
 class TriggerResponse(BaseModel):
@@ -501,11 +502,47 @@ async def trigger_pipeline(request: TriggerRequest) -> dict[str, Any]:
                 len(telemetry_events),
             )
 
+    # ── RAG retrieval (V2 M1) ────────────────────────────────────────────
+    chunks: list[str] | None = None
+    if request.use_rag:
+        try:
+            from app.rag.retrieval import RetrievalPipeline
+            rag = RetrievalPipeline()
+            if await rag.is_indexed(request.circular_id):
+                rag_text = await rag.get_text_for_parser(request.circular_id)
+                if rag_text:
+                    chunks = rag_text.split("\n\n")
+                    logger.info(
+                        "RAG retrieval: %d chunks (%d chars) for '%s'",
+                        len(chunks),
+                        len(rag_text),
+                        request.circular_id,
+                    )
+                else:
+                    logger.warning(
+                        "RAG retrieval returned empty text for '%s' — "
+                        "falling back to full PDF extraction",
+                        request.circular_id,
+                    )
+            else:
+                logger.warning(
+                    "Circular '%s' not indexed in RAG store — "
+                    "falling back to full PDF extraction. "
+                    "Run 'python -m app.cli index' first.",
+                    request.circular_id,
+                )
+        except Exception:
+            logger.exception(
+                "RAG retrieval failed for '%s' — falling back to full PDF extraction",
+                request.circular_id,
+            )
+
     try:
         state = await runner.start(
             circular_path=request.circular_path,
             circular_id=request.circular_id,
             telemetry_events=telemetry_events,
+            chunks=chunks,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

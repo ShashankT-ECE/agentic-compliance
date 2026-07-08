@@ -94,6 +94,7 @@ class PipelineRunner:
         circular_path: str,
         circular_id: str,
         telemetry_events: list[TelemetryEvent] | None = None,
+        chunks: list[str] | None = None,
     ) -> CompliancePipelineState:
         """Start a new pipeline run from scratch.
 
@@ -105,6 +106,8 @@ class PipelineRunner:
             circular_path: Filesystem path to the SEBI circular PDF.
             circular_id: SEBI circular reference number.
             telemetry_events: Broker telemetry events (optional at start time).
+            chunks: Optional pre-retrieved RAG chunks (V2 M1).  When provided,
+                    the parser uses these instead of extracting the full PDF.
 
         Returns:
             The pipeline state after the HITL gate (status AWAITING_APPROVAL).
@@ -117,6 +120,7 @@ class PipelineRunner:
             circular_id=circular_id,
             circular_path=circular_path,
             telemetry_events=telemetry_events or [],
+            chunks=chunks,
             metadata={"started_at": now},
         )
 
