@@ -179,20 +179,6 @@ export default function AuditReport({
 
   if (!report) return null;
 
-  // ── DIAGNOSTIC LOG — V1.0.2 explanation-column investigation ──
-  console.log('[AuditReport DIAG] reportId prop:', reportId);
-  console.log('[AuditReport DIAG] report.report_id:', report.report_id);
-  console.log('[AuditReport DIAG] reportId === report.report_id:', reportId === report.report_id);
-  console.log('[AuditReport DIAG] verdicts count:', report.verdicts.length);
-  if (report.verdicts.length > 0) {
-    const v0: Record<string, unknown> = report.verdicts[0] as unknown as Record<string, unknown>;
-    console.log('[AuditReport DIAG] verdicts[0] keys:', Object.keys(v0).sort());
-    console.log('[AuditReport DIAG] verdicts[0].explanation:', v0.explanation);
-    console.log('[AuditReport DIAG] verdicts[0].explanation type:', typeof v0.explanation);
-    console.log('[AuditReport DIAG] verdicts[0] (full):', v0);
-  }
-  // ────────────────────────────────────────────────────────────────
-
   // ------------------------------------------------------------------
   // Populated
   // ------------------------------------------------------------------
@@ -432,15 +418,7 @@ function VerdictsTable({ verdicts }: { verdicts: ComplianceVerdict[] }) {
             </tr>
           </thead>
           <tbody>
-            {verdicts.map((v, idx) => {
-              // ── DIAGNOSTIC ──
-              if (idx === 0) {
-                const raw: Record<string, unknown> = v as unknown as Record<string, unknown>;
-                console.log('[VerdictsTable DIAG] row 0 verdict keys:', Object.keys(raw).sort());
-                console.log('[VerdictsTable DIAG] row 0 explanation:', raw.explanation);
-                console.log('[VerdictsTable DIAG] row 0 explanation truthy?', !!raw.explanation);
-              }
-              // ────────────────
+            {verdicts.map((v) => {
               const statusClass =
                 v.status === 'compliant'
                   ? 'badge--compliant'
