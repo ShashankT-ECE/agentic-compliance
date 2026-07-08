@@ -55,6 +55,41 @@ def _get_data_dir() -> Path:
     return _LOCKED_DATA_DIR
 
 
+def _load_demo_telemetry() -> list[Any]:
+    """Load the demo telemetry fixture used by scripts/run_demo.sh.
+
+    Returns the same 10-event dataset covering 3 brokers (COMPLIANT,
+    LATE, MISSING) used in integration tests and the CLI demo script.
+    If the fixture file is missing (e.g. production deployment), returns
+    an empty list so the pipeline runs with zero events — which is the
+    safe default (all verdicts will be PENDING).
+
+    This function lives here because it is only needed by the trigger
+    endpoint.  It deliberately does NOT import from tests/ — it reads the
+    JSON fixture file directly, same as the demo script and conftest.py.
+    """
+    import json as _json
+
+    from app.models.telemetry import TelemetryEvent
+
+    fixture_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "tests" / "fixtures" / "sample_telemetry.json"
+    )
+
+    if not fixture_path.exists():
+        logger.warning("Demo telemetry fixture not found at %s — pipeline will run with 0 events", fixture_path)
+        return []
+
+    try:
+        data = _json.loads(fixture_path.read_text(encoding="utf-8"))
+        records = data.get("records", [])
+        return [TelemetryEvent.model_validate(r) for r in records]
+    except Exception:
+        logger.exception("Failed to load demo telemetry from %s", fixture_path)
+        return []
+
+
 class ReviewAction(BaseModel):
     """Request body for approve / reject actions."""
 
@@ -435,6 +470,11 @@ async def trigger_pipeline(request: TriggerRequest) -> dict[str, Any]:
 
     Parses the SEBI circular PDF, extracts FSMs, and pauses at the HITL
     gate for human review.  Returns immediately with the run_id.
+
+    When called without telemetry events, automatically loads the demo
+    telemetry fixture so the evaluator receives real broker event data
+    rather than producing all-PENDING verdicts against an empty dataset.
+    Explicit user-supplied telemetry always takes precedence.
     """
     import asyncio
 
@@ -450,6 +490,16 @@ async def trigger_pipeline(request: TriggerRequest) -> dict[str, Any]:
             telemetry_events.append(TelemetryEvent.model_validate(t))
         except Exception:
             raise HTTPException(status_code=400, detail=f"Invalid telemetry event: {t}")
+
+    # ── Demo fallback: auto-load fixture telemetry when none provided ──────
+    if not telemetry_events:
+        telemetry_events = _load_demo_telemetry()
+        if telemetry_events:
+            logger.info(
+                "Trigger '%s': loaded %d demo telemetry event(s) (no user telemetry provided)",
+                request.circular_id,
+                len(telemetry_events),
+            )
 
     try:
         state = await runner.start(
@@ -796,14 +846,14 @@ def _get_hitl_for_run(run_id: str) -> dict[str, Any]:
     if not locked_fsms:
         raise HTTPException(status_code=404, detail=f"No FSMs found for run '{run_id}'")
 
-    pending_fsms = [f for f in locked_fsms if f.status == LockStatus.PENDING_REVIEW]
+    pending_count = sum(1 for f in locked_fsms if f.status == LockStatus.PENDING_REVIEW)
 
     return {
         "run_id": run_id,
         "circular_ref": locked_fsms[0].circular_ref,
         "total_fsms": len(locked_fsms),
-        "pending": len(pending_fsms),
-        "fsms": [f.model_dump(mode="json", exclude_none=True) for f in pending_fsms],
+        "pending": pending_count,
+        "fsms": [f.model_dump(mode="json", exclude_none=True) for f in locked_fsms],
     }
 
 

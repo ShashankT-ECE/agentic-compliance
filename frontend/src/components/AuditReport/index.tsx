@@ -179,6 +179,20 @@ export default function AuditReport({
 
   if (!report) return null;
 
+  // ── DIAGNOSTIC LOG — V1.0.2 explanation-column investigation ──
+  console.log('[AuditReport DIAG] reportId prop:', reportId);
+  console.log('[AuditReport DIAG] report.report_id:', report.report_id);
+  console.log('[AuditReport DIAG] reportId === report.report_id:', reportId === report.report_id);
+  console.log('[AuditReport DIAG] verdicts count:', report.verdicts.length);
+  if (report.verdicts.length > 0) {
+    const v0: Record<string, unknown> = report.verdicts[0] as unknown as Record<string, unknown>;
+    console.log('[AuditReport DIAG] verdicts[0] keys:', Object.keys(v0).sort());
+    console.log('[AuditReport DIAG] verdicts[0].explanation:', v0.explanation);
+    console.log('[AuditReport DIAG] verdicts[0].explanation type:', typeof v0.explanation);
+    console.log('[AuditReport DIAG] verdicts[0] (full):', v0);
+  }
+  // ────────────────────────────────────────────────────────────────
+
   // ------------------------------------------------------------------
   // Populated
   // ------------------------------------------------------------------
@@ -413,11 +427,20 @@ function VerdictsTable({ verdicts }: { verdicts: ComplianceVerdict[] }) {
               <th>Obligation</th>
               <th>Status</th>
               <th>State</th>
+              <th>Explanation</th>
               <th>Evaluated</th>
             </tr>
           </thead>
           <tbody>
-            {verdicts.map((v) => {
+            {verdicts.map((v, idx) => {
+              // ── DIAGNOSTIC ──
+              if (idx === 0) {
+                const raw: Record<string, unknown> = v as unknown as Record<string, unknown>;
+                console.log('[VerdictsTable DIAG] row 0 verdict keys:', Object.keys(raw).sort());
+                console.log('[VerdictsTable DIAG] row 0 explanation:', raw.explanation);
+                console.log('[VerdictsTable DIAG] row 0 explanation truthy?', !!raw.explanation);
+              }
+              // ────────────────
               const statusClass =
                 v.status === 'compliant'
                   ? 'badge--compliant'
@@ -431,6 +454,9 @@ function VerdictsTable({ verdicts }: { verdicts: ComplianceVerdict[] }) {
                   <td>{v.obligation_ref}</td>
                   <td><span className={`badge ${statusClass}`}>{v.status}</span></td>
                   <td>{v.current_state}</td>
+                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--color-neutral-600)', maxWidth: '18rem' }}>
+                    {v.explanation || '—'}
+                  </td>
                   <td style={{ fontSize: 'var(--text-xs)', whiteSpace: 'nowrap' }}>
                     {new Date(v.evaluated_at).toLocaleString()}
                   </td>

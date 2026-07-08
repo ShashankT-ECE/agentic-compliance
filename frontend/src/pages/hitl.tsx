@@ -43,8 +43,21 @@ export default function HitlReviewPage() {
 
   // ── On mount ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (runId) fetchHitlList(runId);
-  }, [runId, fetchHitlList]);
+    if (runId) {
+      fetchHitlList(runId);
+      // Keep the dashboard's runs array in sync so the status badge
+      // and FSM counts are never stale when the user returns.
+      fetchStatus(runId);
+    }
+  }, [runId, fetchHitlList, fetchStatus]);
+
+  // ── Called after every approve / reject / amend ──────────────────────
+  function onReviewed() {
+    if (runId) {
+      fetchHitlList(runId);
+      fetchStatus(runId);
+    }
+  }
 
   // ── Resume handler ───────────────────────────────────────────────────
   async function handleResume() {
@@ -151,7 +164,7 @@ export default function HitlReviewPage() {
                 runId={runId!}
                 index={totalFsms - pendingFsms.length + i + 1}
                 total={totalFsms}
-                onReviewed={() => fetchHitlList(runId)}
+                onReviewed={onReviewed}
               />
             ))}
           </div>

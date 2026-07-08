@@ -371,6 +371,64 @@ class TestStateMachine:
         assert d["fsm_id"] == "FSM-001"
         assert d["current_state"] == "PENDING"
 
+    # ── transition_to ────────────────────────────────────────────────
+
+    def test_transition_to_advances_state(self):
+        """transition_to() advances current_state and records history."""
+        from app.utils.state_machine import StateMachine
+        fsm = _make_simple_fsm(
+            states=["PENDING", "DUE", "COMPLIANT", "LATE", "NON_COMPLIANT"],
+        )
+        sm = StateMachine(fsm)
+        assert sm.current_state == "PENDING"
+
+        applied = sm.transition_to("LATE", reason="timeline_overdue")
+        assert applied is True
+        assert sm.current_state == "LATE"
+        assert sm.transition_count == 1
+        assert len(sm.history) == 1
+        assert sm.history[0]["source"] == "PENDING"
+        assert sm.history[0]["target"] == "LATE"
+        assert sm.history[0]["trigger"] == "timeline_overdue"
+
+    def test_transition_to_already_in_target_is_noop(self):
+        """transition_to() is a no-op when already in the target state."""
+        from app.utils.state_machine import StateMachine
+        fsm = _make_simple_fsm(
+            states=["PENDING", "COMPLIANT", "LATE"],
+            transitions=[("PENDING", "COMPLIANT", "margin_report_filed")],
+        )
+        sm = StateMachine(fsm)
+        sm.apply_event({"event_type": "margin_report_filed", "timestamp": "2026-06-01T12:00:00Z"})
+        assert sm.current_state == "COMPLIANT"
+        assert sm.transition_count == 1
+
+        applied = sm.transition_to("COMPLIANT")
+        assert applied is False
+        assert sm.current_state == "COMPLIANT"
+        assert sm.transition_count == 1  # unchanged
+
+    def test_transition_to_unknown_state_is_noop(self):
+        """transition_to() returns False for an unknown state name."""
+        from app.utils.state_machine import StateMachine
+        sm = StateMachine(_make_simple_fsm())
+        applied = sm.transition_to("NONEXISTENT")
+        assert applied is False
+        assert sm.current_state == "PENDING"
+        assert sm.transition_count == 0
+
+    def test_transition_to_preserves_determinism(self):
+        """transition_to() is deterministic — same inputs, same result."""
+        from app.utils.state_machine import StateMachine
+        results = []
+        for _ in range(5):
+            sm = StateMachine(_make_simple_fsm(
+                states=["PENDING", "COMPLIANT", "LATE"],
+            ))
+            sm.transition_to("LATE", reason="timeline_overdue")
+            results.append((sm.current_state, sm.transition_count, sm.history))
+        assert all(r == results[0] for r in results)
+
 
 # =========================================================================
 # Timeline Evaluator Tests
@@ -828,6 +886,76 @@ class TestEvaluatorWithTimeline:
         result = evaluate_compliance([lf], events)
         # FSM terminal + no timeline violation (no start_event) → COMPLIANT
         assert result[0].status == VerdictStatus.COMPLIANT
+
+    def test_timeline_overdue_advances_fsm_state(self):
+        """When a timeline rule fires overdue_transition, the FSM
+        current_state must reflect the advance — not stay in the
+        event-driven state."""
+        from app.pipeline.nodes.evaluator import evaluate_compliance
+        fsm = _make_simple_fsm(
+            fsm_id="FSM-TL-OVERDUE",
+            states=["PENDING", "COMPLIANT", "LATE"],
+            transitions=[("PENDING", "COMPLIANT", "margin_report_filed")],
+            timeline_rules=[
+                TimelineRule(
+                    start_event="trade_executed",
+                    deadline_offset=1,
+                    grace_period=0,
+                    time_unit="days",
+                    overdue_transition="LATE",
+                )
+            ],
+        )
+        lf = _make_locked_fsm(fsm)
+        events = [
+            _make_telemetry_event("trade_executed", datetime(2026, 6, 1, 9, 0, 0, tzinfo=timezone.utc)),
+            # margin_report_filed 5 days after ref → past T+1 deadline
+            _make_telemetry_event("margin_report_filed", datetime(2026, 6, 6, 12, 0, 0, tzinfo=timezone.utc)),
+        ]
+        result = evaluate_compliance([lf], events)
+        v = result[0]
+        # Status is NON_COMPLIANT (deadline missed)
+        assert v.status == VerdictStatus.NON_COMPLIANT
+        # current_state must be LATE, not COMPLIANT — the timeline
+        # evaluator advanced the FSM via overdue_transition
+        assert v.current_state == "LATE"
+        # Evidence trail must include the timeline_overdue transition
+        triggers = [t.get("trigger") for t in v.evidence.get("transition_log", [])]
+        assert "timeline_overdue" in triggers
+
+    def test_timeline_overdue_no_events_fsm_pending(self):
+        """No events match FSM transitions but timeline detects missed
+        deadline → FSM advances to LATE via overdue_transition."""
+        from app.pipeline.nodes.evaluator import evaluate_compliance
+        fsm = _make_simple_fsm(
+            fsm_id="FSM-TL-NOEVENTS",
+            states=["PENDING", "COMPLIANT", "LATE"],
+            transitions=[("PENDING", "COMPLIANT", "margin_collected")],
+            timeline_rules=[
+                TimelineRule(
+                    start_event="trade_executed",
+                    deadline_offset=1,
+                    grace_period=0,
+                    time_unit="days",
+                    overdue_transition="LATE",
+                )
+            ],
+        )
+        lf = _make_locked_fsm(fsm)
+        events = [
+            _make_telemetry_event("trade_executed", datetime(2026, 6, 1, 9, 0, 0, tzinfo=timezone.utc)),
+            # No margin_collected event — this is the CL-01 scenario
+            _make_telemetry_event("other_event", datetime(2026, 6, 6, 12, 0, 0, tzinfo=timezone.utc)),
+        ]
+        result = evaluate_compliance([lf], events)
+        v = result[0]
+        # Status is NON_COMPLIANT (deadline missed, no compliant action)
+        assert v.status == VerdictStatus.NON_COMPLIANT
+        # current_state must be LATE — the timeline drove the advance
+        assert v.current_state == "LATE"
+        # Evidence: only the timeline_overdue transition (no event-driven ones)
+        triggers = [t.get("trigger") for t in v.evidence.get("transition_log", [])]
+        assert triggers == ["timeline_overdue"]
 
 
 # =========================================================================

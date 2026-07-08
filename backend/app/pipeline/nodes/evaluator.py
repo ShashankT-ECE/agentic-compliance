@@ -148,6 +148,17 @@ def _evaluate_single_fsm(
     # 3. Check if any timeline rule indicates a missed deadline
     deadline_met = _aggregate_deadline(timeline_results)
 
+    # 3b. Apply overdue transitions from timeline rules to the FSM so the
+    #     StateMachine's current_state reflects the timeline-driven advance.
+    #     A rule whose deadline was missed carries an overdue_transition
+    #     (e.g. "LATE") — this is the canonical target state the FSM should
+    #     be in regardless of whether event-driven transitions fired.
+    for result in timeline_results:
+        if result.get("deadline_met") is False and result.get("overdue_transition"):
+            sm.transition_to(
+                result["overdue_transition"], reason="timeline_overdue"
+            )
+
     # 4. Determine canonical compliance status
     canonical_status = sm.determine_compliance_status(deadline_met=deadline_met)
 

@@ -159,6 +159,55 @@ class StateMachine:
             self.apply_event(event)
         return self.history
 
+    def transition_to(
+        self,
+        target_state: str,
+        reason: str = "timeline_overdue",
+    ) -> bool:
+        """Synthetically advance to a target state (timeline-driven).
+
+        Unlike :meth:`apply_event`, this does not require a matching
+        event trigger.  It is called by the evaluator when a timeline
+        rule's deadline has elapsed and the ``overdue_transition`` must
+        be applied to the FSM.
+
+        The transition is recorded in the history with ``reason`` as the
+        trigger so the evidence trail shows that the timeline evaluator —
+        not a telemetry event — advanced the state.
+
+        Args:
+            target_state: Canonical state to transition to (e.g. ``"LATE"``).
+            reason: Identifier for the trigger in the evidence trail
+                (default ``"timeline_overdue"``).
+
+        Returns:
+            ``True`` if the transition was applied, ``False`` if the FSM
+            was already in *target_state* or the state is unknown.
+        """
+        if target_state == self._current_state:
+            return False
+
+        if target_state not in self._state_names:
+            return False
+
+        source = self._current_state
+        self._current_state = target_state
+        self._transition_count += 1
+
+        record: dict[str, Any] = {
+            "transition_index": self._transition_count,
+            "event_index": self._event_count,
+            "source": source,
+            "target": target_state,
+            "trigger": reason,
+            "event_type": reason,
+            "event_timestamp": None,
+            "event_id": None,
+            "event_payload": {"reason": reason},
+        }
+        self._history.append(record)
+        return True
+
     # ── Compliance determination ─────────────────────────────────────
 
     def determine_compliance_status(
@@ -167,38 +216,35 @@ class StateMachine:
     ) -> str:
         """Determine the canonical compliance status.
 
-        Maps the FSM's terminal state and transition history to one of:
-        PENDING, DUE, COMPLIANT, LATE, NON_COMPLIANT.
+        Derives the status from the FSM's *actual current state* rather
+        than re-deriving it from (is_terminal, has_transitions).  The FSM's
+        transitions — including those driven by overdue timeline rules — are
+        the source of truth for where the machine landed.
+
+        The ``deadline_met`` parameter from the timeline evaluator is used
+        as an override: a missed deadline escalates even a COMPLIANT
+        terminal state to LATE (the action was completed, but too late).
 
         Args:
             deadline_met: Optional timeline evaluation result.
-                None → deadline not considered.
-                True → terminal + on-time → COMPLIANT.
-                False → terminal + late → LATE.
+                None → deadline not considered (trust FSM state).
+                True  → on time — trust FSM state.
+                False → missed deadline — forces LATE regardless of FSM state.
 
         Returns:
             One of the five canonical status strings.
         """
-        terminal = self.is_terminal
-        has_transitions = self._transition_count > 0
+        state = self._current_state
 
-        # No transitions and not terminal → nothing started
-        if not terminal and not has_transitions:
-            return self.STATUS_PENDING
+        # Timeline override: a missed deadline always means LATE, even if
+        # the FSM reached COMPLIANT (the action happened, but after the
+        # regulatory cutoff).
+        if deadline_met is False:
+            return self.STATUS_LATE
 
-        # Some transitions but not terminal → in progress
-        if not terminal and has_transitions:
-            return self.STATUS_DUE
-
-        # Terminal state reached
-        if terminal:
-            if deadline_met is False:
-                return self.STATUS_LATE
-            # True or None → COMPLIANT
-            return self.STATUS_COMPLIANT
-
-        # Fallback
-        return self.STATUS_NON_COMPLIANT
+        # Otherwise trust the FSM: it already reflects the correct canonical
+        # status (COMPLIANT, LATE, NON_COMPLIANT, DUE, or PENDING).
+        return state
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

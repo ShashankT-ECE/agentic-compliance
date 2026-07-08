@@ -118,6 +118,8 @@ export interface ComplianceVerdict {
   current_state: string;
   evidence: JsonObject;
   evaluated_at: string;
+  /** Human-readable explanation derived from the evidence trail (V1.0.2). */
+  explanation?: string;
 }
 
 export interface ObligationResult {
