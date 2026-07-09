@@ -16,6 +16,7 @@
  */
 
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useComplianceStore from '../../store/useComplianceStore';
 import type {
   ReportDetail,
@@ -203,7 +204,11 @@ export default function AuditReport({
 
         {/* Verdicts table */}
         {report.verdicts.length > 0 && (
-          <VerdictsTable verdicts={report.verdicts} />
+          <VerdictsTable
+            verdicts={report.verdicts}
+            circularRef={report.circular_id}
+            runId={report.run_id}
+          />
         )}
 
         {/* Hash chain */}
@@ -398,7 +403,25 @@ function MiniCount({
   );
 }
 
-function VerdictsTable({ verdicts }: { verdicts: ComplianceVerdict[] }) {
+function VerdictsTable({
+  verdicts,
+  circularRef,
+  runId,
+}: {
+  verdicts: ComplianceVerdict[];
+  circularRef?: string;
+  runId?: string;
+}) {
+  const navigate = useNavigate();
+
+  const handleViewSources = (v: ComplianceVerdict) => {
+    const params = new URLSearchParams();
+    params.set('verdictId', v.verdict_id);
+    if (circularRef) params.set('circularRef', circularRef);
+    if (runId) params.set('runId', runId);
+    navigate(`/evidence?${params.toString()}`);
+  };
+
   return (
     <div>
       <h3 style={{ fontSize: 'var(--text-base)', fontWeight: 600, marginBottom: 'var(--space-3)' }}>
@@ -415,6 +438,7 @@ function VerdictsTable({ verdicts }: { verdicts: ComplianceVerdict[] }) {
               <th>State</th>
               <th>Explanation</th>
               <th>Evaluated</th>
+              <th>Evidence</th>
             </tr>
           </thead>
           <tbody>
@@ -437,6 +461,17 @@ function VerdictsTable({ verdicts }: { verdicts: ComplianceVerdict[] }) {
                   </td>
                   <td style={{ fontSize: 'var(--text-xs)', whiteSpace: 'nowrap' }}>
                     {new Date(v.evaluated_at).toLocaleString()}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      style={{ fontSize: 'var(--text-xs)', padding: 'var(--space-1) var(--space-2)' }}
+                      onClick={() => handleViewSources(v)}
+                      title="View source regulation text"
+                    >
+                      View Sources
+                    </button>
                   </td>
                 </tr>
               );

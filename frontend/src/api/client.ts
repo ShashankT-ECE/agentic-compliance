@@ -523,3 +523,100 @@ export async function getReport(
 ): Promise<ReportDetail> {
   return request<ReportDetail>(`/api/reports/${reportId}`);
 }
+
+// ============================================================================
+// Evidence Endpoint types (V2 M3)
+// ============================================================================
+
+export interface Rectangle {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+export interface PageRegion {
+  page_number: number;
+  rectangles: Rectangle[];
+}
+
+export interface EvidenceResponse {
+  evidence_id: string;
+  verdict_id: string;
+  circular_ref: string;
+  fsm_provenance: {
+    fsm_id: string;
+    locked_fsm_id: string | null;
+    obligation_source: {
+      obligation_ref: string;
+      source_chunks: {
+        chunk_id: string;
+        citation_text: string;
+        page_range: [number, number];
+        page_regions: PageRegion[];
+      }[];
+      attribution_method: string;
+    };
+  };
+  evaluated_at: string;
+  pipeline_run_id: string | null;
+  attribution_method: string;
+}
+
+export interface FsmEvidenceResponse {
+  locked_fsm_id: string | null;
+  fsm_id: string;
+  circular_ref: string;
+  obligation_ref: string;
+  source_chunks: {
+    chunk_id: string;
+    text: string;
+    page_range: [number, number];
+    section_path: string;
+  }[];
+  review_status: string | null;
+}
+
+export interface ChunkPositionsResponse {
+  chunk_id: string;
+  circular_ref: string;
+  page_range: [number, number];
+  page_height: number | null;
+  page_width: number | null;
+  regions: PageRegion[];
+  status: 'complete' | 'extracting' | 'unavailable';
+}
+
+// -- Evidence API functions ---------------------------------------------------
+
+/** GET /api/evidence/{verdict_id} */
+export async function getEvidenceForVerdict(
+  verdictId: string,
+): Promise<EvidenceResponse> {
+  return request<EvidenceResponse>(`/api/evidence/${verdictId}`);
+}
+
+/** GET /api/evidence/fsm/{locked_fsm_id} */
+export async function getEvidenceForFsm(
+  lockedFsmId: string,
+): Promise<FsmEvidenceResponse> {
+  return request<FsmEvidenceResponse>(
+    `/api/evidence/fsm/${lockedFsmId}`,
+  );
+}
+
+/** GET /api/chunks/{chunk_id}/positions?circular_ref=... */
+export async function getChunkPositions(
+  chunkId: string,
+  circularRef: string,
+): Promise<ChunkPositionsResponse> {
+  const qs = `?circular_ref=${encodeURIComponent(circularRef)}`;
+  return request<ChunkPositionsResponse>(
+    `/api/chunks/${encodeURIComponent(chunkId)}/positions${qs}`,
+  );
+}
+
+/** GET /api/circulars/{circular_ref}/pdf — returns the PDF URL (not the blob). */
+export function getCircularPdfUrl(circularRef: string): string {
+  return `/api/circulars/${encodeURIComponent(circularRef)}/pdf`;
+}

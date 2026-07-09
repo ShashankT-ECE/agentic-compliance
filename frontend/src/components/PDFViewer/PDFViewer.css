@@ -1,0 +1,91 @@
+/* PDFViewer — V2 M3 — Evidence Traceability */
+
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--color-neutral-50);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.pdf-viewer__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-neutral-100);
+  border-bottom: 1px solid var(--color-neutral-300);
+}
+
+.pdf-viewer__nav-btn {
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-neutral-400);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
+.pdf-viewer__nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pdf-viewer__nav-btn:hover:not(:disabled) {
+  background: var(--color-neutral-200);
+}
+
+.pdf-viewer__page-info {
+  font-size: var(--text-sm);
+  color: var(--color-neutral-600);
+  font-variant-numeric: tabular-nums;
+  min-width: 8rem;
+  text-align: center;
+}
+
+.pdf-viewer__page-input {
+  width: 3.5rem;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-neutral-400);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.pdf-viewer__document {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.pdf-viewer__page-container {
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.pdf-viewer__loading,
+.pdf-viewer__error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20rem;
+  color: var(--color-neutral-500);
+  font-size: var(--text-base);
+}
+
+.pdf-viewer__error {
+  color: var(--color-danger-500);
+}
+
+/* Highlight overlay canvas sits on top of the PDF page */
+.pdf-highlight-overlay {
+  border-radius: 1px;
+}
