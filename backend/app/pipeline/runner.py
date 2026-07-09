@@ -86,6 +86,48 @@ class PipelineRunner:
 
     def __init__(self, llm_client: Any = None) -> None:
         self._llm_client = llm_client
+        self._pg_repo = None  # lazily created
+
+    def _get_pg_repo(self):
+        """Return a PipelineRunRepo, or None if PG is unavailable."""
+        if self._pg_repo is not None:
+            return self._pg_repo
+        try:
+            from app.database import AsyncSessionLocal
+            from app.db.repos.pipeline_run_repo import PipelineRunRepo
+            self._pg_repo = (AsyncSessionLocal, PipelineRunRepo)
+        except Exception:
+            logger.debug("PostgreSQL persistence unavailable")
+        return self._pg_repo
+
+    async def _persist_checkpoint(self, state: CompliancePipelineState) -> None:
+        """Persist a checkpoint save to PostgreSQL (graceful fallback)."""
+        pg = self._get_pg_repo()
+        if pg is None:
+            return
+        SessionFactory, RepoClass = pg
+        try:
+            async with SessionFactory() as session:
+                repo = RepoClass(session)
+                await repo.save_checkpoint(state)
+                await session.commit()
+        except Exception:
+            logger.debug("Checkpoint save failed for '%s' — continuing", state.run_id)
+
+    async def _persist_completed(self, state: CompliancePipelineState) -> None:
+        """Persist the completed run with verdicts + evidence in one transaction."""
+        pg = self._get_pg_repo()
+        if pg is None:
+            return
+        SessionFactory, RepoClass = pg
+        try:
+            async with SessionFactory() as session:
+                repo = RepoClass(session)
+                await repo.save_completed_run(state)
+                await session.commit()
+                logger.info("Run '%s' persisted to PostgreSQL", state.run_id)
+        except Exception:
+            logger.exception("Failed to persist completed run '%s'", state.run_id)
 
     # ── Start pipeline ───────────────────────────────────────────────
 
@@ -95,6 +137,7 @@ class PipelineRunner:
         circular_id: str,
         telemetry_events: list[TelemetryEvent] | None = None,
         chunks: list[str] | None = None,
+        chunk_objects: list[dict] | None = None,
     ) -> CompliancePipelineState:
         """Start a new pipeline run from scratch.
 
@@ -108,6 +151,8 @@ class PipelineRunner:
             telemetry_events: Broker telemetry events (optional at start time).
             chunks: Optional pre-retrieved RAG chunks (V2 M1).  When provided,
                     the parser uses these instead of extracting the full PDF.
+            chunk_objects: Serialized Chunk objects (V2 M3).  Preserved for
+                    evidence assembly after evaluation.
 
         Returns:
             The pipeline state after the HITL gate (status AWAITING_APPROVAL).
@@ -121,6 +166,7 @@ class PipelineRunner:
             circular_path=circular_path,
             telemetry_events=telemetry_events or [],
             chunks=chunks,
+            chunk_objects=chunk_objects or [],
             metadata={"started_at": now},
         )
 
@@ -148,14 +194,7 @@ class PipelineRunner:
         """Resume a paused pipeline after HITL review is complete.
 
         Sets locked_fsms to the approved/amended FSMs and continues through
-        evaluator → scoreboard.
-
-        Args:
-            run_id: The pipeline run identifier.
-            approved_fsms: List of approved/amended LockedFSM records.
-
-        Returns:
-            The final pipeline state (status COMPLETED or FAILED).
+        evaluator → scoreboard, then assembles evidence references.
         """
         store = _get_store()
         if run_id not in store:
@@ -178,7 +217,14 @@ class PipelineRunner:
             updates = scoreboard_node(state)
             _apply_updates(state, updates)
 
+            # Assemble evidence (V2 M3)
+            await self._assemble_evidence(state)
+
             state.status = PipelineStatus.COMPLETED
+
+            # Persist completed run to PG (V2 M4)
+            await self._persist_completed(state)
+
         except Exception:
             logger.exception("Pipeline resume failed for run '%s'", run_id)
             state.status = PipelineStatus.FAILED
@@ -209,7 +255,7 @@ class PipelineRunner:
             approved_fsms: Optional pre-approved LockedFSM records.
 
         Returns:
-            Final pipeline state.
+            Final pipeline state with evidence assembled.
         """
         run_id = _make_run_id()
         now = _utcnow()
@@ -240,7 +286,14 @@ class PipelineRunner:
             updates = scoreboard_node(state)
             _apply_updates(state, updates)
 
+            # Assemble evidence (V2 M3)
+            await self._assemble_evidence(state)
+
             state.status = PipelineStatus.COMPLETED
+
+            # Persist completed run to PG (V2 M4)
+            await self._persist_completed(state)
+
         else:
             # Full run including HITL
             state = await self._run_until_hitl(state)
@@ -250,23 +303,95 @@ class PipelineRunner:
 
         return state
 
+    # ── Evidence assembly (V2 M3) ────────────────────────────────────
+
+    async def _assemble_evidence(self, state: CompliancePipelineState) -> None:
+        """Build EvidenceReference objects for every verdict in *state*.
+
+        Called after evaluator → scoreboard. Uses the EvidenceService to
+        attribute input chunks to obligations and produce one
+        EvidenceReference per verdict. Results are stored in
+        ``state.evidence_map``.
+
+        Skips silently when:
+          - No chunk objects are available (V1 full-PDF run).
+          - No verdicts were produced.
+          - EvidenceService encounters an error (logged, not fatal).
+        """
+        if not state.chunk_objects or not state.compliance_verdicts:
+            logger.info(
+                "Skipping evidence assembly for run '%s' — %s",
+                state.run_id,
+                "no chunk objects" if not state.chunk_objects else "no verdicts",
+            )
+            return
+
+        try:
+            from app.models.obligation import ObligationClause
+            from app.pipeline.evidence_service import EvidenceService
+            from app.rag.schemas import Chunk
+
+            # Reconstruct Chunk objects from serialized dicts
+            chunks = [Chunk.model_validate(c) for c in state.chunk_objects]
+            obligations = list(state.obligation_clauses)
+            verdicts = list(state.compliance_verdicts)
+
+            service = EvidenceService()
+            evidence_map = service.build_evidence(
+                verdicts=verdicts,
+                chunks=chunks,
+                obligations=obligations,
+                circular_ref=state.circular_id,
+                pdf_path=state.circular_path or "",
+                run_id=state.run_id,
+                enrich_bbox=False,  # bbox enrichment is expensive; defer to API call
+            )
+
+            # Store as dicts in the state
+            state.evidence_map = {
+                vid: ev.model_dump(mode="json", exclude_none=True)
+                for vid, ev in evidence_map.items()
+            }
+
+            logger.info(
+                "Assembled %d evidence reference(s) for run '%s'",
+                len(state.evidence_map),
+                state.run_id,
+            )
+        except Exception:
+            logger.exception(
+                "Evidence assembly failed for run '%s' — continuing",
+                state.run_id,
+            )
+
     # ── Internal helpers ─────────────────────────────────────────────
 
     async def _run_until_hitl(self, state: CompliancePipelineState) -> CompliancePipelineState:
         """Execute parser → fsm_extractor → hitl_gate sequentially."""
         from app.pipeline.graph import fsm_extractor_node, hitl_gate_node, parser_node
 
+        state.status = PipelineStatus.PARSING
+        await self._persist_checkpoint(state)
+
         # Node 1: Parser (async, needs LLM client)
         updates = await parser_node(state, self._llm_client)
         _apply_updates(state, updates)
+        state.status = PipelineStatus.PARSED
+        await self._persist_checkpoint(state)
 
         # Node 2: FSM Extractor (async, needs LLM client)
+        state.status = PipelineStatus.EXTRACTING_FSM
+        await self._persist_checkpoint(state)
         updates = await fsm_extractor_node(state, self._llm_client)
         _apply_updates(state, updates)
+        state.status = PipelineStatus.FSM_EXTRACTED
+        await self._persist_checkpoint(state)
 
         # HITL Gate (sync)
         updates = hitl_gate_node(state)
         _apply_updates(state, updates)
+        state.status = PipelineStatus.AWAITING_APPROVAL
+        await self._persist_checkpoint(state)
 
         return state
 
@@ -292,16 +417,28 @@ def _apply_updates(state: CompliancePipelineState, updates: dict[str, Any]) -> N
 
 
 def get_run_state(run_id: str) -> CompliancePipelineState | None:
-    """Get the current state of a pipeline run."""
+    """Get the current state of a pipeline run.
+
+    Checks the in-memory store first, then falls back to PostgreSQL.
+    """
     store = _get_store()
     record = store.get(run_id)
-    return record.state if record else None
+    if record and record.state:
+        return record.state
+
+    # Fallback: try PG
+    return _load_state_from_pg(run_id)
 
 
 def get_all_runs() -> list[dict[str, Any]]:
-    """Get a summary of all pipeline runs."""
+    """Get a summary of all pipeline runs.
+
+    Merges in-memory and PG runs.
+    """
     store = _get_store()
     summaries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
     for run_id, record in store.items():
         state = record.state
         summaries.append({
@@ -311,4 +448,55 @@ def get_all_runs() -> list[dict[str, Any]]:
             "created_at": record.created_at,
             "updated_at": record.updated_at,
         })
+        seen.add(run_id)
+
+    # Add PG runs not already in memory
+    pg_runs = _list_runs_from_pg()
+    for r in pg_runs:
+        if r["run_id"] not in seen:
+            summaries.append(r)
+
     return summaries
+
+
+# =========================================================================
+# PG fallback helpers (V2 M4)
+# =========================================================================
+
+
+def _load_state_from_pg(run_id: str) -> CompliancePipelineState | None:
+    """Attempt to load pipeline state from PostgreSQL."""
+    try:
+        import asyncio
+        from app.database import AsyncSessionLocal
+        from app.db.repos.pipeline_run_repo import PipelineRunRepo
+
+        async def _load():
+            async with AsyncSessionLocal() as session:
+                repo = PipelineRunRepo(session)
+                blob = await repo.get_run(run_id)
+                return blob
+
+        blob = asyncio.run(_load())
+        if blob:
+            return CompliancePipelineState.model_validate(blob)
+    except Exception:
+        pass
+    return None
+
+
+def _list_runs_from_pg() -> list[dict[str, Any]]:
+    """List runs from PostgreSQL."""
+    try:
+        import asyncio
+        from app.database import AsyncSessionLocal
+        from app.db.repos.pipeline_run_repo import PipelineRunRepo
+
+        async def _list():
+            async with AsyncSessionLocal() as session:
+                repo = PipelineRunRepo(session)
+                return await repo.list_runs()
+
+        return asyncio.run(_list())
+    except Exception:
+        return []

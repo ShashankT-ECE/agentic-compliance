@@ -1,264 +1,188 @@
 # Graphify Handoff
 
 > **Purpose**: Pipeline graph topology, state, and node/edge information for the Graphify visualization integration.
-> **Updated**: 2026-07-08 — V1.0.2 complete, committed, pushed. V1 frozen.
+> **Updated**: 2026-07-09 — V2 M1 (Regulatory RAG) complete, committed, pushed. M2 next.
 
 ---
 
 ## Graph Status
 
-**V1.0.2 COMPLETE + PUSHED (`401b659`).** All 5 pipeline nodes + HITL gate implemented and debugged. LangGraph StateGraph wired with conditional routing. FastAPI provides 13 REST endpoints. React dashboard renders all stages. Demo script validates full flow. Real DeepSeek v4 Pro API works end-to-end. Official SEBI circular (CIR/2025/57) validated. V1 frozen.
+**V1.0.2 FROZEN — V2 M1 COMPLETE (`32149c8`).**
+
+V2 M1 adds a RAG (Retrieval-Augmented Generation) layer upstream of the existing
+5-node pipeline. The RAG layer pre-processes PDFs into structure-aware chunks,
+generates embeddings via bge-small-en-v1.5, stores them in Chroma, and feeds
+retrieved chunks to the parser when `use_rag=True`.
+
+All V1 node implementations and the HITL gate are unchanged.
 
 ---
 
-## Pipeline Topology (V1.0.2 Final)
+## Pipeline Topology (V2 M1)
 
 ```
-[Node 1: PDF Parser] ──→ [Node 2: FSM Extractor] ──→ [HITL Gate] ──→ [Node 3: Evaluator] ──→ [Node 4: Scoreboard]
-       ✅ M1                      ✅ M2                    ✅ M4              ✅ M5 V1.0.2            ✅ M6
-                                                           │
-                                              ┌────────────┴────────────┐
-                                              │                         │
-                                         (all resolved)           (pending/rejected)
-                                              │                         │
-                                              ▼                         ▼
-                                         [Evaluator]                  [END]
-                                 (FSM events → timeline overdue)
-                                              │
-                                              ▼
-                                         [Report]
-                                    (explanation column)
+┌── RAG LAYER (V2 M1) ──────────────────────────────────────────────┐
+│                                                                     │
+│  PDF → [Chunker] → [Embedder] → [Chroma Vector Store]               │
+│         200 chunks    bge-small     persistent                       │
+│                                                                     │
+│  Query → [Embed] → [Chroma.search()] → Retrieved Chunks             │
+│                                              │                      │
+└──────────────────────────────────────────────┼──────────────────────┘
+                                               │
+                                               ▼
+┌── PIPELINE (V1, preserved) ───────────────────────────────────────┐
+│                                                                     │
+│  [Node 1: PDF Parser] ──→ [Node 2: FSM Extractor] ──→ [HITL Gate]  │
+│       ✅ M1 V2 M1               ✅ M2 V1.0.1              ✅ M4      │
+│         │                                                           │
+│         │ chunks?  ┌── yes → use chunked text                       │
+│         │          └── no  → extract full PDF (V1 path)             │
+│                                                                     │
+│  [HITL Gate] ──→ [Node 3: Evaluator] ──→ [Node 4: Scoreboard]      │
+│                      ✅ M5 V1.0.2              ✅ M6                 │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 | Aspect | Detail |
 |--------|--------|
-| **Type** | Directed acyclic graph (DAG) with conditional branch |
+| **Type** | DAG with conditional HITL branch + upstream RAG layer |
 | **Orchestration** | LangGraph `StateGraph` + `PipelineRunner` |
-| **State** | `CompliancePipelineState` (Pydantic model) |
-| **Nodes** | 5 (4 pipeline + 1 HITL gate) |
-| **Edges** | 4 linear + 1 conditional (HITL decision) |
-| **API** | FastAPI with 13 REST endpoints |
+| **State** | `CompliancePipelineState` (+ `chunks` field in V2 M1) |
+| **Nodes** | 5 pipeline + 1 HITL gate + RAG layer (3 new modules) |
+| **API** | FastAPI with 16 REST endpoints (13 V1 + 3 RAG) |
 | **Frontend** | React 19 + TypeScript + Vite + Zustand (52 modules) |
-| **Demo** | `scripts/run_demo.sh` — in-process, MockLLMClient, deterministic |
-| **Tests** | 410 (68+39+34+20+46+75+38+53+37) — 0 failed |
+| **Tests** | 447 (410 V1 + 37 RAG) — 0 failed |
 
-## Key V1.0.2 Changes (All Committed `401b659`)
+## Key V2 M1 Changes
 
-### Evaluator: determine_compliance_status() trusts current_state (2026-07-07)
+### RAG Layer
 
-Node 3's `StateMachine.determine_compliance_status()` was re-derived from structural properties (`is_terminal`, `has_transitions`) rather than reading `self._current_state`. This caused all verdicts to return PENDING even when the FSM had transitioned to LATE. Fixed to trust `self._current_state` with a `deadline_met=False` override for regulatory LATE escalation.
+Three new modules form the RAG subsystem:
 
-### Evaluator: overdue_transition integrated (2026-07-08)
+| Module | Class | Purpose |
+|--------|-------|---------|
+| `rag/chunker.py` | `DocumentChunker` | Topic-level chunking, 200 chunks from 399-page master circular |
+| `rag/embedder.py` | `LocalEmbedder` | bge-small-en-v1.5 (384-dim), lazy loading, async |
+| `rag/vector_store.py` | `ChromaVectorStore` | Persistent Chroma, CRUD + search + metadata filter |
+| `rag/retrieval.py` | `RetrievalPipeline` | Semantic search + `get_text_for_parser()` |
 
-`TimelineEvaluator.evaluate_timeline_rule()` always computed `overdue_transition` but the evaluator never consumed it. The `deadline_met=False` override forced canonical status to LATE but `sm.current_state` remained PENDING. Fixed by:
+### Parser Integration
 
-1. `StateMachine.transition_to(target, reason)` — synthetically advances FSM state for timeline-driven transitions
-2. `_evaluate_single_fsm()` — applies `overdue_transition` to the FSM for every timeline rule with `deadline_met=False`
+| Change | File | Impact |
+|--------|------|--------|
+| `chunks` parameter | `parser.py:parse_circular()` | Optional list[str] — when provided, concatenated and used as input |
+| `chunks` in state | `parser.py:parser_node()` | Reads `chunks` key from state dict; skips PDF extraction when present |
+| `chunks` field | `state.py:CompliancePipelineState` | `chunks: list[str] \| None = None` |
+| `chunks` param | `runner.py:PipelineRunner.start()` | Passes chunks through to state |
+| `use_rag` flag | `pipeline.py:TriggerRequest` | Boolean, default `False` — enables RAG retrieval in trigger |
 
-Result: `current_state` and `status` are now consistent — both reflect the timeline advance.
+### New API Endpoints
 
-### Report: explanation column (2026-07-08)
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/rag/index` | Index a circular PDF into Chroma |
+| `POST` | `/api/rag/query` | Semantic search across indexed circulars |
+| `GET` | `/api/rag/status/{circular_ref}` | Check index status for a circular |
 
-`_derive_explanation(verdict)` produces a one-sentence explanation from the evidence trail. Displayed as "Explanation" column in the frontend verdicts table. PENDING verdicts now explain why (e.g., `"Awaiting start event 'circular_issued' — not found in telemetry data."`). Browser-verified — no "—" fallbacks.
+### Chunker Design
 
----
+The chunker detects the SEBI Master Circular's 4-level hierarchy:
+Roman sections (I-X) → Numbered topics (1-98) → Sub-sections (X.Y) → Sub-sub-sections (X.Y.Z)
 
-## Nodes
+Strategy: chunk at topic boundaries. Split large topics (>3,000 chars) at paragraph boundaries.
+Merge small adjacent chunks within the same Roman section. Never merge across section boundaries.
 
-| ID | Name | LLM? | Status | Input | Output |
-|----|------|------|--------|-------|--------|
-| 1 | PDF Parser | ✅ Yes | ✅ M1 V1.0.1 | Circular PDF path | `List[ObligationClause]` |
-| 2 | FSM Extractor | ✅ Yes | ✅ M2 V1.0.1 | `List[ObligationClause]` | `List[HybridFSM]` |
-| — | HITL Gate | ❌ Never | ✅ M4 V1.0.1 | `List[HybridFSM]` | `List[LockedFSM]` (PENDING_REVIEW) |
-| 3 | Assertion Evaluator | ❌ Never | ✅ M5 V1.0.2 | `List[LockedFSM]` + `List[TelemetryEvent]` | `List[ComplianceVerdict]` |
-| 4 | Scoreboard Generator | Format only | ✅ M6 | `List[ComplianceVerdict]` | `Scoreboard` + `HashChain` |
+Result: 200 chunks from 399-page master circular (avg 3,680 chars, range 10-81K).
 
-## Edges
-
-| From | To | Condition | Status |
-|------|----|-----------|--------|
-| Node 1 | Node 2 | Always | ✅ M7 wired |
-| Node 2 | HITL | Always | ✅ M7 wired |
-| HITL | Node 3 | All resolved (APPROVED or AMENDED) | ✅ M7 conditional |
-| HITL | END | Pending review or any REJECTED | ✅ M7 conditional |
-| Node 3 | Node 4 | Always | ✅ M7 wired |
-| Node 4 | END | Always | ✅ M7 wired |
-
-## API Endpoints (V1.0.2 Final)
+## API Endpoints (V2 M1 — 16 total)
 
 | Method | Path | Node | Added |
 |--------|------|------|-------|
-| `POST` | `/api/pipeline/trigger` | Starts pipeline (Nodes 1→2→HITL) | M7 |
+| `POST` | `/api/pipeline/trigger` | Starts pipeline (+ `use_rag` flag) | M7 → V2 M1 |
 | `GET` | `/api/pipeline/status/{run_id}` | Queries pipeline status | M7 |
 | `GET` | `/api/pipeline/result/{run_id}` | Returns verdicts + scoreboard | M7 |
-| `POST` | `/api/pipeline/{run_id}/resume` | Resumes after HITL (evaluator→scoreboard) | V1.0.1 |
+| `POST` | `/api/pipeline/{run_id}/resume` | Resumes after HITL | V1.0.1 |
 | `GET` | `/api/pipeline/hitl` | Lists HITL review items | M7 |
-| `POST` | `/api/pipeline/hitl/{fsm_id}/approve` | Approves obligation at HITL gate | M7 |
-| `POST` | `/api/pipeline/hitl/{fsm_id}/reject` | Rejects obligation at HITL gate | M7 |
-| `POST` | `/api/pipeline/hitl/{fsm_id}/amend` | Amends obligation at HITL gate | M7 |
+| `POST` | `/api/pipeline/hitl/{fsm_id}/approve` | Approves obligation | M7 |
+| `POST` | `/api/pipeline/hitl/{fsm_id}/reject` | Rejects obligation | M7 |
+| `POST` | `/api/pipeline/hitl/{fsm_id}/amend` | Amends obligation | M7 |
 | `POST` | `/api/telemetry/ingest` | Ingests broker telemetry | M7 |
-| `GET` | `/api/telemetry/query` | Queries ingested telemetry | M7 |
-| `GET` | `/api/reports/generate/{run_id}` | Generates audit report | M7 → V1.0.2 (compliance_pct fix + explanation) |
-| `GET` | `/api/reports/{report_id}` | Retrieves stored report | M7 → V1.0.2 (verdicts include explanation) |
+| `GET` | `/api/telemetry/query` | Queries telemetry | M7 |
+| `GET` | `/api/reports/generate/{run_id}` | Generates audit report | M7 → V1.0.2 |
+| `GET` | `/api/reports/{report_id}` | Retrieves report | M7 → V1.0.2 |
+| `POST` | `/api/rag/index` | Index circular into Chroma | **V2 M1** |
+| `POST` | `/api/rag/query` | Semantic search | **V2 M1** |
+| `GET` | `/api/rag/status/{circular_ref}` | Index status | **V2 M1** |
 | `GET` | `/health` | Health check | M7 |
 
-## Data Flow (V1.0.2 Final)
+## Data Flow (V2 M1)
 
 ```
-[Circular PDF]
+[SEBI Circular PDF]
      │
-     ▼ pdf_ingest.extract_text()
-[raw_text: str]
+     ├── INDEX PATH (one-time) ──────────────────────────
+     │   pdf_ingest.extract_text_by_page()
+     │   DocumentChunker.chunk_pdf()
+     │   200 chunks with metadata (section_path, topic, etc.)
+     │   LocalEmbedder.encode(chunk_texts)
+     │   ChromaVectorStore.add_chunks()
+     │   ✓ Indexed
      │
-     ▼ parse_circular(llm_client) → M1
-     │  (max_tokens=16384, truncation recovery)
-[obligation_clauses: List[ObligationClause]]
+     ├── QUERY PATH (on demand) ─────────────────────────
+     │   POST /api/rag/query { query: "margin deadlines" }
+     │   → LocalEmbedder.encode(query)
+     │   → Chroma.search(query_embedding, top_k=10)
+     │   → [RetrievalResult, ...]
      │
-     ▼ extract_fsms(llm_client) → M2
-[extracted_fsms: List[HybridFSM]]
-     │
-     ▼ hitl_gate_node() → M4 — PAUSE
-[locked_fsms: List[LockedFSM]] ← API-driven review (approve/reject/amend)
-     │                            persist_locked_fsms() → data/locked_fsms/{run_id}/
-     ▼ (on all-resolved)
-[evaluator_node()] → M5 V1.0.2 — deterministic, no LLM, AST-verified
-     │  1. StateMachine.apply_events() → event-driven FSM transitions
-     │  2. TimelineEvaluator.evaluate_timeline_rule() → overdue detection
-     │  3. StateMachine.transition_to(overdue_transition) → timeline-driven advance
-     │  4. determine_compliance_status(deadline_met) → canonical status
-     │  5. _map_status(canonical) → VerdictStatus
-     │
-     ▼
-[compliance_verdicts: List[ComplianceVerdict]]
-     │  current_state reflects both event + timeline subsystems
-     │
-     ▼ generate_scoreboard() → M6
-[scoreboard: Scoreboard + hash_chain: HashChain]
-     │
-     ▼ generate_report() → _derive_explanation() → explanation column
-[REST API response — 13 endpoints, verdicts include explanation field]
-     │
-     ▼
-[React Dashboard — trigger, HITL review, telemetry, reports, compliance workflow]
-     │  AuditReport → Explanation column (7th column in verdicts table)
-     │
-     ▼
-[scripts/run_demo.sh — end-to-end demo with MockLLMClient]
+     └── PIPELINE PATH (use_rag=True) ──────────────────
+         POST /api/pipeline/trigger { use_rag: true }
+         → RetrievalPipeline.get_text_for_parser(circular_ref)
+             → Chroma.get_by_circular_ref(circular_ref)
+             → chunks sorted by topic_number, chunk_index
+             → concatenated text
+         → PipelineRunner.start(..., chunks=chunks)
+         → parser_node reads chunks from state
+         → parse_circular(input_text=concatenated_chunks)
+         → [V1 pipeline continues unchanged]
+         → HITL → Evaluator → Scoreboard → Report
 ```
-
-## Integrity Chain
-
-```
-SEBI circular → ObligationClause → HybridFSM → LockedFSM
-                                                    │
-                                          integrity_hash (SHA-256)
-                                                    │
-                                          hash_link (M3 chain)
-                                                    │
-                                          Scoreboard.hash_chain
-                                                    │
-                                          verify_chain() ✓
-```
-
-## Verdict Status Semantics (V1.0.2 Final)
-
-| FSM Current State | canonical → VerdictStatus | Meaning |
-|---|---|---|
-| PENDING | → PENDING | Nothing started yet (no events, no timeline trigger) |
-| DUE | → PENDING | In progress, awaiting more events |
-| COMPLIANT | → COMPLIANT | All required actions on time |
-| LATE | → NON_COMPLIANT | Action done after deadline or deadline missed |
-| NON_COMPLIANT | → NON_COMPLIANT | Deadline passed, no action |
-| Any + deadline_met=False | → LATE → NON_COMPLIANT | Timeline override, FSM advanced via transition_to() |
-
-## Explanation Column (V1.0.2 Final)
-
-| Verdict Status | Scenario | Example Explanation |
-|---------------|----------|-------------------|
-| COMPLIANT | All met | `"All obligations met within deadline."` |
-| NON_COMPLIANT | Deadline missed | `"Deadline missed: 'trade_executed' occurred on 2025-05-12 but required action was not completed in time."` |
-| PENDING | Start event missing | `"Awaiting start event 'circular_issued' — not found in telemetry data."` |
-| PENDING | No matching events | `"No matching telemetry events found for this obligation's transition triggers."` |
-| PENDING | In progress | `"In progress: reached 'DUE' — awaiting further events to reach a terminal state."` |
-
-## Official SEBI Circular Validation (2026-07-08)
-
-Validated end-to-end against `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57` (April 28, 2025):
-- 4 clauses extracted, 4 FSMs generated, 4 verdicts evaluated
-- Scoreboard: hash chain verified
-- Report: all explanations populated
-- No code changes required
-
-399-page Master Circular (`SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/90`, June 17, 2025) also tested:
-- PDF saved to `backend/data/circulars/`
-- 53 clauses recovered via truncation recovery (when API succeeds)
-- Bottleneck: `max_tokens=16384` consumed by v4 Pro reasoning on 196K input tokens
-- Requires V2: larger token budget or chunked parsing
 
 ## Graph Changes
 
 | Date | Change | Description |
 |------|--------|-------------|
 | 2026-07-03 | Initial topology | V1 topology with HITL conditional edge |
-| 2026-07-03 | M4 complete | HITL gate implemented |
-| 2026-07-03 | M5 complete | Evaluator implemented (deterministic, no LLM) |
-| 2026-07-04 | M6 complete | Scoreboard generator implemented |
-| 2026-07-04 | M7 complete | LangGraph wiring + FastAPI orchestration layer |
-| 2026-07-04 | M8 complete | React dashboard + typed API client + Zustand store |
-| 2026-07-04 | M9 complete | 26 integration tests, demo script, state bridge fix |
-| 2026-07-06 | V1.0.1 | 8 root causes fixed, resume endpoint, HITL review page, enterprise UI, parser robustness, disk-authoritative HITL list, 404 tests |
-| 2026-07-06 | V1.0.2 wip | Dashboard sync fix, linear workflow diagram, terminology polish |
-| 2026-07-07 | V1.0.2 evaluator fix | determine_compliance_status() trusts current_state; report compliance_pct aligned with scoreboard |
-| 2026-07-08 | V1.0.2 overdue integration | transition_to() + overdue_transition wired into evaluator; current_state now reflects timeline advances |
-| 2026-07-08 | V1.0.2 explanation column | _derive_explanation() from evidence; 7th column in frontend verdicts table; browser-verified |
-| 2026-07-08 | V1.0.2 release | All changes committed (`401b659`), pushed to `origin/dev`. V1 frozen. |
-| 2026-07-08 | V1 freeze | No further changes to V1 pipeline, models, evaluator, or API. V2 planning begins. |
+| 2026-07-06 | V1.0.1 | 8 root causes fixed, enterprise UI, 404 tests |
+| 2026-07-08 | V1.0.2 | Evaluator fix, explanation column, V1 frozen |
+| 2026-07-09 | V2 M1 RAG | Chunker, embedder, Chroma, retrieval API, parser integration |
+| 2026-07-09 | V2 M1 release | Committed `32149c8`, pushed to `origin/dev`. 447 tests. |
 
 ## Test Coverage
 
 | Module | Tests | Status |
 |--------|-------|--------|
 | test_models.py | 68 | ✅ |
-| test_parser.py | 39 (+4 truncation) | ✅ |
+| test_parser.py | 39 | ✅ V2 M1 updated |
 | test_fsm.py | 34 | ✅ |
 | test_hash_chain.py | 20 | ✅ |
 | test_hitl.py | 46 | ✅ |
-| test_evaluator.py | 75 (+6 transition_to + overdue) | ✅ |
+| test_evaluator.py | 75 | ✅ |
 | test_scoreboard.py | 38 | ✅ |
 | test_orchestration.py | 53 | ✅ |
 | test_integration.py | 37 | ✅ |
-| **Total** | **410** | **0 failed** |
+| test_rag_chunker.py | 13 | ✅ V2 M1 |
+| test_rag_embedder.py | 8 | ✅ V2 M1 |
+| test_rag_vector_store.py | 10 | ✅ V2 M1 |
+| test_rag_retrieval.py | 6 | ✅ V2 M1 |
+| **Total** | **447** | **0 failed** |
 
-## Demo Script
+## Next Milestone — M2: Multi-Circular Retrieval
 
-```
-scripts/run_demo.sh
-
-Flow:
-  Phase 0 — Dependency checks (Python, fixtures)
-  Phase 1 — Pipeline execution (Python, in-process)
-    Step 1: Trigger pipeline (runner.start)
-    Step 2: HITL queue (load_locked_fsms)
-    Step 3: Auto-approve FSMs
-    Step 4: Resume pipeline (runner.resume)
-    Step 5: Compliance verdicts
-    Step 6: Scoreboard
-    Step 7: Hash chain verification + tamper test
-    Step 8: Report generation
-
-Features:
-  - Uses MultiMockLLMClient (no API key needed)
-  - Deterministic (same hash chain root every run)
-  - Exit codes: 0=success, 1=deps, 2=pipeline, 3=hash-chain
-```
-
-## V2 Roadmap — Planned Graph Changes
-
-| Proposed Change | Description | Priority |
-|----------------|-------------|----------|
-| Chunked parser | Split large PDFs into sections, extract obligations per chunk | High |
-| max_tokens increase | Support 32K-64K output for reasoning models on large inputs | High |
-| File upload endpoint | Replace `circular_path` with multipart file upload | High |
-| PostgreSQL persistence | Replace in-memory stores with SQLAlchemy + Alembic | High |
-| Authentication | API keys or JWT for pipeline endpoints | Medium |
-| CI/CD pipeline | GitHub Actions for test suite + build verification | Medium |
+Planned graph changes:
+- Circular registry model for tracking multiple indexed circulars
+- Multi-circular indexing pipeline (batch index)
+- Unified retrieval across all indexed circulars with `circular_ref` metadata
+- API: `GET /api/rag/status` (list all indexed circulars)
+- Cross-circular search without specifying `circular_ref` filter

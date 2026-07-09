@@ -34,3 +34,5 @@ backend/debug/
 
 # Docker
 docker-data/
+# Chroma vector database
+backend/data/chroma_db/

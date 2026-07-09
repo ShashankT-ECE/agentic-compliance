@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import pipeline, reports, telemetry, rag
+from app.api.routes import pipeline, reports, telemetry, rag, evidence
 
 # ---------------------------------------------------------------------------
 # Load environment variables from .env file BEFORE any dependency initialisation
@@ -52,6 +52,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     runner = get_runner()
     logger.info("LLM client: %s", type(llm).__name__)
     logger.info("Pipeline runner: ready")
+
+    # Initialise database tables (V2 M4)
+    try:
+        from app.database import init_db
+        await init_db()
+        logger.info("Database tables initialised")
+    except Exception:
+        logger.warning(
+            "PostgreSQL not available — running with in-memory stores and "
+            "JSON-file registry as fallback.  Start PostgreSQL via "
+            "'docker-compose up -d db' for persistent storage.",
+        )
 
     yield
 
@@ -87,6 +99,7 @@ app.include_router(pipeline.router)
 app.include_router(telemetry.router)
 app.include_router(reports.router)
 app.include_router(rag.router)
+app.include_router(evidence.router)
 
 
 # -------------------------------------------------------------------------

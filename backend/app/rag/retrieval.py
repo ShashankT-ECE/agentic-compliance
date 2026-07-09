@@ -1,8 +1,14 @@
 """
-Retrieval pipeline — V2 M1.
+Retrieval pipeline — V2 M2 (Chroma) → V2 M4 (Chroma + PostgreSQL).
 
 Orchestrates chunk retrieval for both semantic search queries and
-parser integration (section-by-section text assembly).
+parser integration.
+
+**V2 M4:** When an ``AsyncSession`` is provided, chunk text and metadata
+are read from PostgreSQL (``rag_chunks`` table).  Chroma is used only
+for ANN vector search.  When no session is given, falls back to the
+V2 M2 behaviour (Chroma for everything).  This preserves backward
+compatibility for the CLI and existing tests.
 """
 
 from __future__ import annotations
@@ -18,16 +24,15 @@ logger = logging.getLogger(__name__)
 
 
 class RetrievalPipeline:
-    """Orchestrate retrieval from the vector store.
+    """Orchestrate retrieval from the vector store and PostgreSQL.
 
     Usage::
 
         pipeline = RetrievalPipeline(config)
         results = await pipeline.search("margin collection deadlines", top_k=10)
-        text = await pipeline.get_text_for_parser("SEBI/HO/...")
 
-    The pipeline holds references to the embedder and vector store,
-    which are created lazily and cached at module level.
+    When an ``AsyncSession`` is provided, chunk text and metadata are
+    hydrated from PostgreSQL.  Chroma is used only for ANN search.
     """
 
     _embedder: LocalEmbedder | None = None
@@ -46,17 +51,13 @@ class RetrievalPipeline:
         top_k: int | None = None,
         circular_ref: str | None = None,
         metadata_filter: dict | None = None,
+        *,
+        db_session=None,          # V2 M4: optional AsyncSession for PG hydration
     ) -> list[RetrievalResult]:
         """Semantic search across indexed circulars.
 
-        Args:
-            query: Natural language query.
-            top_k: Max results (default from config).
-            circular_ref: Optional circular to scope search to.
-            metadata_filter: Optional Chroma where-clause dict.
-
-        Returns:
-            Ranked list of retrieval results.
+        Uses Chroma for ANN vector search.  When *db_session* is provided,
+        chunk text and metadata are hydrated from PostgreSQL.
         """
         top_k = top_k or self._config.retrieval.default_top_k
         embedder = self._get_embedder()
@@ -73,47 +74,100 @@ class RetrievalPipeline:
 
         # Filter by similarity threshold
         threshold = self._config.retrieval.similarity_threshold
-        filtered = [r for r in results if r.score >= threshold]
+        results = [r for r in results if r.score >= threshold]
 
-        return filtered
+        # Hydrate from PG if a session is available
+        if db_session is not None and results:
+            chunk_ids = [r.chunk_id for r in results]
+            try:
+                from app.db.repos.rag_chunk_repo import RagChunkRepo
+                repo = RagChunkRepo(db_session)
+                pg_chunks = await repo.get_by_chunk_ids(chunk_ids)
+                pg_map = {c.chunk_id: c for c in pg_chunks}
+                for r in results:
+                    if r.chunk_id in pg_map:
+                        c = pg_map[r.chunk_id]
+                        r.text = c.text
+                        r.metadata = {
+                            "circular_ref": c.metadata.circular_ref,
+                            "section_path": c.metadata.section_path,
+                            "topic_number": c.metadata.topic_number,
+                            "chunk_index": c.metadata.chunk_index,
+                            "start_page": c.metadata.start_page,
+                            "end_page": c.metadata.end_page,
+                        }
+            except Exception:
+                logger.debug("PG hydration skipped — session may be unavailable")
+
+        return results
 
     async def get_text_for_parser(
         self,
         circular_ref: str,
+        *,
+        db_session=None,          # V2 M4: optional AsyncSession for PG hydration
     ) -> str:
         """Retrieve all chunk text for a circular, for parser consumption.
 
-        Retrieves all chunks for the given circular and returns them
-        concatenated in section order.  This is used by the pipeline
-        when ``use_rag=True`` to send structured, pre-indexed text to
-        the parser instead of extracting the full PDF.
-
-        Args:
-            circular_ref: SEBI circular reference number.
-
-        Returns:
-            Concatenated chunk text suitable for parse_circular().
+        When *db_session* is provided, reads from PostgreSQL.
+        Otherwise, reads from Chroma.
         """
+        if db_session is not None:
+            try:
+                from app.db.repos.rag_chunk_repo import RagChunkRepo
+                repo = RagChunkRepo(db_session)
+                chunks = await repo.get_by_circular_ref(circular_ref)
+                if chunks:
+                    texts = [c.text for c in chunks]
+                    return "\n\n".join(texts)
+                return ""
+            except Exception:
+                logger.debug("PG get_text_for_parser failed — falling back to Chroma")
+
+        # Fallback: Chroma
         store = self._get_vector_store()
         chunks = store.get_by_circular_ref(circular_ref)
-
         if not chunks:
             logger.warning("No chunks found for '%s'", circular_ref)
             return ""
-
-        # Sort by topic_number, then chunk_index for coherent ordering.
         chunks.sort(key=_chunk_sort_key)
-
         texts = [c.text for c in chunks]
         return "\n\n".join(texts)
 
-    async def is_indexed(self, circular_ref: str) -> bool:
-        """Check whether a circular has been indexed in the vector store."""
+    async def is_indexed(
+        self,
+        circular_ref: str,
+        *,
+        db_session=None,          # V2 M4: optional AsyncSession
+    ) -> bool:
+        """Check whether a circular has been indexed."""
+        if db_session is not None:
+            try:
+                from app.db.repos.rag_chunk_repo import RagChunkRepo
+                repo = RagChunkRepo(db_session)
+                return await repo.count_by_circular_ref(circular_ref) > 0
+            except Exception:
+                logger.debug("PG is_indexed failed — falling back to Chroma")
         store = self._get_vector_store()
         return store.count_by_circular(circular_ref) > 0
 
-    def get_chunk_count(self, circular_ref: str) -> int:
+    def get_chunk_count(
+        self,
+        circular_ref: str,
+        *,
+        db_session=None,          # V2 M4: optional AsyncSession (sync wrapper)
+    ) -> int:
         """Return the number of indexed chunks for a circular."""
+        if db_session is not None:
+            import asyncio
+            try:
+                async def _count():
+                    from app.db.repos.rag_chunk_repo import RagChunkRepo
+                    repo = RagChunkRepo(db_session)
+                    return await repo.count_by_circular_ref(circular_ref)
+                return asyncio.run(_count())
+            except Exception:
+                logger.debug("PG get_chunk_count failed — falling back to Chroma")
         return self._get_vector_store().count_by_circular(circular_ref)
 
     # ------------------------------------------------------------------

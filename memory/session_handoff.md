@@ -6,121 +6,107 @@
 
 | Field | Value |
 |-------|-------|
-| **Date** | 2026-07-08 |
+| **Date** | 2026-07-09 |
 | **Developer** | Brad (Friend — Windows + WSL2) |
 | **Branch** | `dev` |
-| **Latest Commit** | `401b659` — feat(v1.0.2): improve audit report explanations and evaluation flow |
-| **Repository State** | Working tree clean. All changes committed and pushed to `origin/dev`. |
-| **Overall Status** | **V1.0.2 COMPLETE + PUSHED — V1 FROZEN** |
+| **Latest Commit** | Pending — `feat(v2-m2): implement multi-circular retrieval` |
+| **Repository State** | M2 implementation complete, uncommitted. All tests pass. |
+| **Overall Status** | **V1.0.2 FROZEN — V2 M1 + M2 COMPLETE — M3 NEXT** |
 
 ---
 
-## What Was Done — Full V1.0.2 History
+## What Was Done — V2 M2 (Multi-Circular Retrieval)
 
-### Phase 1 — Diagnostic Investigation (2026-07-07)
+### Architecture
 
-- Traced the "all PENDING" report bug through the full pipeline.
-- Root cause: `StateMachine.determine_compliance_status()` re-derived canonical status from `(is_terminal, has_transitions)` instead of reading `self._current_state`.
-- **Fix 1**: `state_machine.py` — `determine_compliance_status()` now trusts `self._current_state`.
-- **Fix 2**: `reports.py` — Report `compliance_pct` now matches scoreboard formula.
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     REGULATORY KNOWLEDGE LAYER                       │
+│                                                                     │
+│  CircularRegistry (JSON)   ChromaVectorStore (persistent)           │
+│  ┌─────────────────────┐   ┌──────────────────────────────────┐    │
+│  │ circular_ref        │──→│ chunks + embeddings per circular │    │
+│  │ pdf_path            │   │ list_circulars()                 │    │
+│  │ document_hash       │   │ count_by_circular()              │    │
+│  │ index_version       │   │ get_by_circular_ref()            │    │
+│  │ indexed_at          │   │ delete_circular()                │    │
+│  │ chunk_count         │   └──────────────────────────────────┘    │
+│  │ char_count          │                                           │
+│  └─────────────────────┘                                           │
+│           │                              │                          │
+│  GET /api/rag/circulars          RetrievalPipeline                 │
+│  POST /api/rag/index-all         .search(query, circular_ref=X)    │
+│  DELETE /api/rag/circular/{ref}  .get_text_for_parser(ref)         │
+│                                                                     │
+│  CLI: list | index-all | delete                                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-### Phase 2 — Verification (2026-07-07)
+### New files created (2)
 
-- 404 tests passed, frontend build clean.
-- Live end-to-end demo verified.
+| File | Purpose |
+|------|---------|
+| `backend/app/rag/circular_registry.py` | `CircularRecord` model, `CircularRegistryBackend` Protocol, `JsonCircularRegistry`, module-level `build_record()` |
+| `backend/tests/test_rag_multi_circular.py` | 10 tests for new API endpoints (list, index-all, delete) |
 
-### Phase 3 — Browser Verification (2026-07-08)
+### Files modified (6)
 
-- Full browser end-to-end: Trigger → HITL → Resume → Evaluation → Scoreboard → Report.
-- Observed: CL-01 displayed `State=PENDING, Status=NON_COMPLIANT` — a state/status split.
+| File | Change |
+|------|--------|
+| `backend/app/rag/__init__.py` | +6 exports (CircularRecord, Backend, build_record, get_registry, reset_registry) |
+| `backend/app/rag/vector_store.py` | `list_circulars()` method |
+| `backend/app/rag/embedder.py` | `_encode_sync()` calls `_ensure_loaded()` (bug fix) |
+| `backend/app/api/routes/rag.py` | 3 new endpoints + `index` now registers in registry |
+| `backend/app/cli.py` | 3 new commands: `list`, `index-all`, `delete` |
+| `backend/tests/test_rag_retrieval.py` | +6 tests (cross-circular search + chunk provenance) |
+| `backend/tests/test_rag_vector_store.py` | +4 tests (list_circulars) |
 
-### Phase 4 — Overdue Transition Integration (2026-07-08)
+### Key design decisions
 
-**Root cause**: `TimelineEvaluator.evaluate_timeline_rule()` computed `overdue_transition` (e.g. `"LATE"`) but this value was never consumed by the evaluator. `sm.current_state` remained PENDING because nothing called the FSM's overdue transition.
+| Decision | Rationale |
+|----------|-----------|
+| **`CircularRegistryBackend` Protocol** | 4-method protocol. JSON now, PostgreSQL in M4. Callers never import the concrete implementation. |
+| **`build_record()` module-level function** | Not tied to any persistence backend. Works with JSON, PostgreSQL, or future backends. |
+| **`get_registry()` returns Protocol type** | Callers are type-safe against the protocol, not `JsonCircularRegistry`. |
+| **`{circular_ref:path}` on all URL params** | SEBI refs contain slashes. FastAPI `:path` converter preserves them. |
+| **document_hash + index_version** | SHA-256 hash of PDF at index time + version tag. Supports incremental re-indexing and embedding migration. |
+| **Chunk provenance preserved** | All `RetrievalResult` objects carry full metadata (circular_ref, section_path, topic_number, etc.) — M3 ready. |
 
-**Fix — 3 files changed**:
+### Test results
 
-1. `state_machine.py` (+49 lines): New `transition_to(target_state, reason)` method — synthetically advances the FSM for timeline-driven transitions. Records in history with `trigger="timeline_overdue"`.
-2. `evaluator.py` (+11 lines): For every timeline rule with `deadline_met=False`, applies `sm.transition_to(result["overdue_transition"])` before building the verdict.
-3. `test_evaluator.py` (+128 lines): 6 new tests (4 unit + 2 integration covering exact CL-01 scenario).
-
-**Result**: CL-01 now shows `current_state=LATE, status=non_compliant`. State/Status split resolved. 410 tests pass.
-
-### Phase 5 — Explanation Column (2026-07-08)
-
-**Backend** (`reports.py`):
-- `_derive_explanation(verdict)` — pure function deriving one-sentence explanations from evidence:
-  - COMPLIANT: "All obligations met within deadline."
-  - NON_COMPLIANT: "Deadline missed: '{event}' occurred on {date} but required action was not completed in time."
-  - PENDING: "Awaiting start event '{event}' — not found in telemetry data."
-- `_serialize_verdict()` — attaches `explanation` key to serialized verdicts.
-
-**Frontend**:
-- `client.ts`: Added `explanation?: string` to `ComplianceVerdict` interface.
-- `AuditReport/index.tsx`: Added "Explanation" column (7th column).
-
-### Phase 6 — Browser Verification (2026-07-08)
-
-Explanation column renders correctly in browser. All 4 verdicts display meaningful explanations. No "—" fallbacks. **RESOLVED.**
-
-### Phase 7 — Official SEBI Circular Validation (2026-07-08)
-
-End-to-end validation against the official SEBI circular `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57` (April 28, 2025):
-- PDF downloaded from caalley.com mirror (sebi.gov.in blocks all programmatic access).
-- 3,460 chars extracted cleanly.
-- Parser: 4 clauses extracted (vs 2 in demo fixture).
-- FSM Extractor: 4 FSMs generated.
-- HITL: 4 approved.
-- Evaluator: 0 COMPLIANT / 1 NON_COMPLIANT / 3 PENDING (correct — fixture lacks matching events).
-- Scoreboard: hash chain verified.
-- Report: all explanations populated.
-
-**V1 confirmed working with official circular. No code changes needed.**
-
-### Phase 8 — 399-Page Master Circular Stress Test (2026-07-08)
-
-Attempted validation against `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/90` (Master Circular for Stock Brokers, June 17, 2025):
-- 783,933 chars extracted (~196K tokens).
-- **Bottleneck identified**: DeepSeek v4 Pro's `reasoning_content` consumes the entire `max_tokens=16384` output budget on 184K input tokens, leaving zero content tokens. Intermittent — succeeds ~40% of calls, yielding 53 clauses via truncation recovery.
-- **Not a code defect** — needs larger `max_tokens` (32K-64K) or chunked parsing for V2.
-- PDF saved to `backend/data/circulars/SEBI-Master-Circular-Stock-Brokers-2025-06-17.pdf`.
-
-### Phase 9 — V1.0.2 Commit, Push & Freeze (2026-07-08)
-
-All changes committed as `401b659` and pushed to `origin/dev`. V1 declared frozen.
+| Suite | Tests | Status |
+|-------|-------|--------|
+| V1 (unchanged) | 410 | ✅ 410 passed |
+| M1 RAG | 37 | ✅ 37 passed |
+| M2 Registry | 23 | ✅ 23 passed |
+| M2 Multi-circular API | 10 | ✅ 10 passed |
+| M2 Retrieval + Vector Store | +10 | ✅ 10 passed |
+| **Total** | **490** | **490 passed, 0 failed, 1 warning** |
 
 ---
 
-## Committed Files (V1.0.2 — `401b659`)
+## Remaining Known Issues
 
-| File | Changes | Purpose |
-|------|---------|---------|
-| `backend/app/api/routes/pipeline.py` | +56 | V1.0.2 dashboard state sync |
-| `backend/app/api/routes/reports.py` | +121 | compliance_pct fix + explanation derivation |
-| `backend/app/pipeline/nodes/evaluator.py` | +11 | overdue transition integration |
-| `backend/app/utils/state_machine.py` | +96 | determine_compliance_status fix + transition_to() |
-| `backend/tests/test_evaluator.py` | +128 | 6 new tests for transition_to + overdue integration |
-| `frontend/src/api/client.ts` | +2 | explanation field on ComplianceVerdict |
-| `frontend/src/components/AuditReport/index.tsx` | +28 | Explanation column + diagnostic logs |
-| `frontend/src/components/FSMViewer/index.tsx` | ±483 | Linear workflow diagram redesign |
-| `frontend/src/pages/hitl.tsx` | +19 | onReviewed sync fix + terminology cleanup |
-
----
-
-## Known Issues (non-blocking, deferred to V2)
-
-1. **Console.log diagnostics** — 11 `[AuditReport DIAG]` / `[VerdictsTable DIAG]` calls in `AuditReport/index.tsx` (investigation remnants, cosmetic only).
-2. **PDF path UX** — Backend expects backend-root-relative paths (`data/circulars/...`), but users naturally enter project-root-relative paths (`backend/data/circulars/...`). Causes HTTP 400.
-3. **HITL queue accumulation** — ~2 stale run directories in `data/locked_fsms/` from test runs.
-4. **Large document support** — `max_tokens=16384` insufficient for 399-page circulars with reasoning models.
-5. **In-memory stores** — All pipeline state lost on server restart.
-6. **No authentication** — API endpoints are unauthenticated.
+- **399-page Master Circular parser stress** — `max_tokens=16384` consumed by v4 Pro reasoning. RAG path mitigates this.
+- **HITL queue accumulates historical runs** — stale directories from test runs.
+- **PDF path UX** — backend expects backend-root-relative paths.
+- `docs/architecture.pdf` broken (ASCII placeholder) — V2.
+- In-memory stores — V2 M4 (PostgreSQL).
+- No authentication — V2 M4.
+- Docker Compose incomplete — V2 M4.
+- Frontend tests — V2 M4.
+- Chroma not yet indexed (collection is empty).
+- Registry JSON file is a dev mechanism — M4 DB migration.
 
 ---
 
 ## Next Milestone
 
-**V2 — Production Hardening** (see `progress.md` V2 Roadmap)
+**V2 M3 — Evidence Traceability**
+
+Objective: Every compliance decision traceable back to exact regulatory text.
+
+See M3 design document section in the session output for detailed design.
 
 ---
 
@@ -137,9 +123,20 @@ fuser -k 8000/tcp 2>/dev/null
 # Verify
 cd backend
 source .venv/bin/activate
-python -m pytest tests/ -v        # 410 tests
+python -m pytest tests/ -v        # 490 tests
 cd ../frontend
 npm run build                      # 52 modules
+
+# Index a circular (first time)
+python -m app.cli index \
+  --pdf-path data/circulars/SEBI-HO-MIRSD-MIRSD-PoD-P-CIR-2025-57-official.pdf \
+  --circular-ref "SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57"
+
+# List indexed circulars
+python -m app.cli list
+
+# Search indexed circulars
+python -m app.cli search --query "margin collection deadline" --top-k 5
 
 # Start backend
 cd ../backend && source .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000 &
@@ -149,9 +146,11 @@ cd ../frontend && npm run dev
 ```
 
 **CRITICAL RULES:**
-- Do not redesign M0–M9 — all milestones are independently verified.
+- Do not redesign M0–M2 — all milestones are independently verified.
 - V1 is frozen — do not modify pipeline, models, evaluator, or API.
-- Propose and get V2 plan approved before any implementation.
-- All 410 tests must continue to pass.
 - Node 3 safety gate (no LLM) must never be violated.
-- Always restart the backend server after any code change.
+- All 490 tests must continue to pass.
+- `use_rag=False` default — V1 path unchanged.
+- Parser contract should remain stable.
+- RetrievalPipeline should remain stable unless absolutely necessary.
+- Server must be restarted after any backend code change.

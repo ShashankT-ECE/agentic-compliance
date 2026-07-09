@@ -192,6 +192,22 @@ class CompliancePipelineState(BaseModel):
     )
 
     # ------------------------------------------------------------------
+    # Evidence (V2 M3 — populated during pipeline execution)
+    # ------------------------------------------------------------------
+
+    chunk_objects: list[dict] = Field(
+        default_factory=list,
+        description="Serialized Chunk objects fed to the parser (for evidence provenance). "
+                    "Populated when use_rag=True; empty for V1 full-PDF runs.",
+    )
+    evidence_map: dict[str, dict] = Field(
+        default_factory=dict,
+        description="EvidenceReference objects indexed by verdict_id. "
+                    "Assembled after evaluator → scoreboard by the EvidenceService. "
+                    "Empty until the pipeline completes.",
+    )
+
+    # ------------------------------------------------------------------
     # Observability
     # ------------------------------------------------------------------
 

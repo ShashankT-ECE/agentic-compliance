@@ -178,3 +178,56 @@ class TestPersistence:
             assert store2.count() == 2
         finally:
             store2.reset()
+
+
+# =============================================================================
+# V2 M2 — Multi-circular list_circulars
+# =============================================================================
+
+
+class TestListCirculars:
+    """Tests for ChromaVectorStore.list_circulars() — V2 M2."""
+
+    def test_empty_store_returns_empty_list(self, vector_store):
+        assert vector_store.list_circulars() == []
+
+    def test_single_circular(self, vector_store):
+        chunks = [
+            _make_chunk("A::1", "text one", circular_ref="CIRC-A", chunk_index=0),
+            _make_chunk("A::2", "text two", circular_ref="CIRC-A", chunk_index=1),
+        ]
+        import random
+        random.seed(99)
+        embeddings = [[random.random() for _ in range(2)] for _ in range(2)]
+        vector_store.add_chunks(chunks, embeddings)
+        refs = vector_store.list_circulars()
+        assert refs == ["CIRC-A"]
+
+    def test_multiple_circulars(self, vector_store):
+        chunks = [
+            _make_chunk("A::1", "text a1", circular_ref="CIRC-A", chunk_index=0),
+            _make_chunk("B::1", "text b1", circular_ref="CIRC-B", chunk_index=0),
+            _make_chunk("C::1", "text c1", circular_ref="SEBI/CIR/2025/1", chunk_index=0),
+        ]
+        import random
+        random.seed(42)
+        embeddings = [[random.random() for _ in range(2)] for _ in range(3)]
+        vector_store.add_chunks(chunks, embeddings)
+        refs = vector_store.list_circulars()
+        assert len(refs) == 3
+        assert "CIRC-A" in refs
+        assert "CIRC-B" in refs
+        assert "SEBI/CIR/2025/1" in refs
+
+    def test_slash_containing_refs(self, vector_store):
+        """Circular refs with slashes are returned correctly."""
+        ref = "SEBI/HO/MIRSD/P/CIR/2025/57"
+        chunks = [
+            _make_chunk("SL::1", "text", circular_ref=ref, chunk_index=0),
+        ]
+        import random
+        random.seed(7)
+        embeddings = [[random.random() for _ in range(2)]]
+        vector_store.add_chunks(chunks, embeddings)
+        refs = vector_store.list_circulars()
+        assert ref == refs[0]

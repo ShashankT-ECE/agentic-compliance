@@ -475,9 +475,41 @@ def hitl_gate_node(state: dict[str, Any]) -> dict[str, Any]:
     # Persist to disk
     persist_locked_fsms(locked_fsms, run_id)
 
+    # Persist to PostgreSQL (V2 M4)
+    _save_locked_fsms_to_pg(locked_fsms, run_id)
+
     # Pause the pipeline
     state["status"] = PipelineStatus.AWAITING_APPROVAL
     state["locked_fsms"] = []  # Not yet approved — populated on resume
 
     logger.info("HITL gate: pipeline paused at AWAITING_APPROVAL for run '%s'", run_id)
     return state
+
+
+# =============================================================================
+# PG helper (V2 M4)
+# =============================================================================
+
+
+def _save_locked_fsms_to_pg(locked_fsms, run_id: str) -> None:
+    """Persist LockedFSM records to PostgreSQL.
+
+    Graceful fallback — if PG is unavailable, records are still on disk.
+    """
+    import asyncio as _asyncio
+    from app.database import AsyncSessionLocal
+    from app.db.repos.locked_fsm_repo import LockedFsmRepo
+
+    async def _run():
+        async with AsyncSessionLocal() as session:
+            repo = LockedFsmRepo(session)
+            await repo.save_batch(list(locked_fsms), run_id)
+            await session.commit()
+
+    coro = _run()
+    try:
+        _asyncio.run(coro)
+    except Exception:
+        pass  # PG unavailable — records are on disk
+    finally:
+        coro.close()

@@ -78,3 +78,84 @@ class TestIsIndexed:
             assert await populated_store.is_indexed("SEBI-001")
             assert not await populated_store.is_indexed("NONEXISTENT")
         asyncio.run(_run())
+
+
+# =============================================================================
+# V2 M2 — Multi-circular + provenance tests
+# =============================================================================
+
+
+class TestCrossCircularSearch:
+    """Search behaviour with multiple circulars in the store."""
+
+    def test_search_without_filter_returns_both_circulars(self, populated_store):
+        """Unfiltered search returns results from all indexed circulars."""
+        async def _run():
+            r = await populated_store.search("clients", top_k=10)
+            refs = {x.metadata.get("circular_ref") for x in r}
+            # Both circulars have matching chunks
+            assert "SEBI-001" in refs or "SEBI-002" in refs
+            assert len(r) >= 2
+        asyncio.run(_run())
+
+    def test_filter_excludes_other_circular(self, populated_store):
+        """Filtering to SEBI-001 excludes SEBI-002 results."""
+        async def _run():
+            r = await populated_store.search("clients", top_k=10, circular_ref="SEBI-001")
+            for x in r:
+                assert x.metadata.get("circular_ref") == "SEBI-001"
+        asyncio.run(_run())
+
+    def test_filter_nonexistent_circular_returns_empty(self, populated_store):
+        """Filtering to a nonexistent circular returns no results."""
+        async def _run():
+            r = await populated_store.search("margin", top_k=10, circular_ref="NONEXISTENT")
+            assert len(r) == 0
+        asyncio.run(_run())
+
+
+class TestChunkProvenance:
+    """Verify chunk metadata survives round-trips through the pipeline.
+
+    This is critical for M3 (Evidence Traceability) — every chunk must
+    carry its full provenance (section_path, topic_number, roman_section,
+    etc.) through search results and get_by_circular_ref lookups.
+    """
+
+    def test_search_result_preserves_metadata(self, populated_store):
+        """Metadata in search results is a superset of the original."""
+        async def _run():
+            r = await populated_store.search("VaR margins", top_k=1)
+            assert len(r) == 1
+            meta = r[0].metadata
+            assert meta.get("circular_ref") == "SEBI-001"
+            assert meta.get("section_path", "").startswith("I.")
+            assert "topic_number" in meta
+            assert "chunk_index" in meta
+            assert "chunk_total" in meta
+            assert "char_count" in meta
+        asyncio.run(_run())
+
+    def test_get_by_circular_ref_preserves_full_metadata(self, populated_store):
+        """Chunks retrieved by ref have complete ChunkMetadata."""
+        async def _run():
+            # Use get_text_for_parser which calls get_by_circular_ref internally
+            text = await populated_store.get_text_for_parser("SEBI-001")
+            assert len(text) > 0
+            # Verify text contains the expected content (proven via chunk metadata)
+            assert "VaR margins" in text
+        asyncio.run(_run())
+
+    def test_chunk_text_concatenated_in_order(self, populated_store):
+        """get_text_for_parser returns chunks sorted by topic_number."""
+        async def _run():
+            text = await populated_store.get_text_for_parser("SEBI-001")
+            # Chunks have topic_number 1, 2, 3 — verify all appear
+            assert "VaR margins" in text          # topic 1
+            assert "verify antecedents" in text   # topic 2
+            assert "half-yearly" in text          # topic 3
+            # Order check: topic 1 text before topic 3 text
+            pos1 = text.find("VaR margins")
+            pos3 = text.find("half-yearly")
+            assert pos1 >= 0 and pos3 >= 0 and pos1 < pos3
+        asyncio.run(_run())

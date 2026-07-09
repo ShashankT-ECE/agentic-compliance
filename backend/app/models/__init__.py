@@ -11,6 +11,14 @@ from app.models.telemetry import BrokerInfo, TelemetryEvent
 from app.models.fsm import FSMState, FSMTransition, HybridFSM, TimelineRule
 from app.models.verdict import ComplianceVerdict, VerdictStatus
 from app.models.scoreboard import BrokerScore, ObligationResult, Scoreboard
+from app.models.evidence import (
+    ChunkCitation,
+    EvidenceReference,
+    FSMProvenance,
+    ObligationSource,
+    PageRegion,
+    Rectangle,
+)
 
 __all__ = [
     # Obligation
@@ -32,4 +40,11 @@ __all__ = [
     "ObligationResult",
     "BrokerScore",
     "Scoreboard",
+    # Evidence (V2 M3)
+    "ChunkCitation",
+    "EvidenceReference",
+    "FSMProvenance",
+    "ObligationSource",
+    "PageRegion",
+    "Rectangle",
 ]

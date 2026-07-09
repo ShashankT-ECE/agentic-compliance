@@ -144,6 +144,22 @@ class ChromaVectorStore:
         )
         return len(results.get("ids", []))
 
+    def list_circulars(self) -> list[str]:
+        """Return all unique circular refs in the collection.
+
+        Useful for discovering which circulars have been indexed when the
+        circular registry file is missing or out of sync.
+        """
+        collection = self._get_collection()
+        # Chroma doesn't have a "distinct values" query, so we fetch all
+        # metadata and extract unique circular_ref values in-process.
+        results = collection.get(include=["metadatas"])
+        refs: set[str] = set()
+        for meta in results.get("metadatas", []):
+            if meta and "circular_ref" in meta:
+                refs.add(meta["circular_ref"])
+        return sorted(refs)
+
     def reset(self) -> None:
         """Delete the entire collection (for testing)."""
         try:
@@ -249,6 +265,8 @@ def _metadata_dict(chunk: Chunk) -> dict:
         "chunk_index": m.chunk_index,
         "chunk_total": m.chunk_total,
         "char_count": m.char_count,
+        "start_page": m.start_page,
+        "end_page": m.end_page,
     }
     if m.roman_section is not None:
         d["roman_section"] = m.roman_section
@@ -278,4 +296,6 @@ def _metadata_from_dict(d: dict) -> object:
         chunk_index=d.get("chunk_index", 0),
         chunk_total=d.get("chunk_total", 1),
         char_count=d.get("char_count", 0),
+        start_page=d.get("start_page", 1),
+        end_page=d.get("end_page", 1),
     )

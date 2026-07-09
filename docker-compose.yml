@@ -10,21 +10,30 @@ services:
       - "8000:8000"
     env_file:
       - backend/.env
+    environment:
+      # Override DATABASE_URL for Docker networking (host=db, not localhost)
+      DATABASE_URL: postgresql+asyncpg://compliance:compliance@db:5432/compliance_db
     volumes:
       - ./backend:/app
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:16-alpine
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: agentic_compliance
+      POSTGRES_USER: compliance
+      POSTGRES_PASSWORD: compliance
+      POSTGRES_DB: compliance_db
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U compliance -d compliance_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:

@@ -270,6 +270,16 @@ def approve_fsm_endpoint(run_id: str, locked_fsm_id: str, action: ReviewAction) 
     # Persist the updated record
     _replace_in_list(locked_fsms, updated)
     persist_locked_fsms(locked_fsms, run_id, output_dir=_get_data_dir())
+    _save_locked_fsms_to_pg(locked_fsms, run_id)
+    _append_hitl_log_to_pg(
+        run_id=run_id,
+        locked_fsm_id=locked_fsm_id,
+        fsm_id=updated.fsm_id,
+        obligation_ref=updated.obligation_ref,
+        action="approved",
+        reviewer=action.reviewer,
+        comments=action.review_comments,
+    )
 
     return updated.model_dump(mode="json", exclude_none=True)
 
@@ -306,6 +316,16 @@ def reject_fsm_endpoint(run_id: str, locked_fsm_id: str, action: ReviewAction) -
 
     _replace_in_list(locked_fsms, updated)
     persist_locked_fsms(locked_fsms, run_id, output_dir=_get_data_dir())
+    _save_locked_fsms_to_pg(locked_fsms, run_id)
+    _append_hitl_log_to_pg(
+        run_id=run_id,
+        locked_fsm_id=locked_fsm_id,
+        fsm_id=updated.fsm_id,
+        obligation_ref=updated.obligation_ref,
+        action="rejected",
+        reviewer=action.reviewer,
+        comments=action.review_comments,
+    )
 
     return updated.model_dump(mode="json", exclude_none=True)
 
@@ -360,6 +380,16 @@ def amend_fsm_endpoint(run_id: str, locked_fsm_id: str, action: AmendAction) -> 
 
     _replace_in_list(locked_fsms, updated)
     persist_locked_fsms(locked_fsms, run_id, output_dir=_get_data_dir())
+    _save_locked_fsms_to_pg(locked_fsms, run_id)
+    _append_hitl_log_to_pg(
+        run_id=run_id,
+        locked_fsm_id=locked_fsm_id,
+        fsm_id=updated.fsm_id,
+        obligation_ref=updated.obligation_ref,
+        action="amended",
+        reviewer=action.reviewer,
+        comments=action.review_comments,
+    )
 
     return updated.model_dump(mode="json", exclude_none=True)
 
@@ -502,14 +532,22 @@ async def trigger_pipeline(request: TriggerRequest) -> dict[str, Any]:
                 len(telemetry_events),
             )
 
-    # ── RAG retrieval (V2 M1) ────────────────────────────────────────────
+    # ── RAG retrieval (V2 M1 / V2 M4) ─────────────────────────────────────
     chunks: list[str] | None = None
+    chunk_objects: list[dict] = []
     if request.use_rag:
+        db_session = None
+        try:
+            from app.database import AsyncSessionLocal
+            db_session = AsyncSessionLocal()
+        except Exception:
+            pass
+
         try:
             from app.rag.retrieval import RetrievalPipeline
             rag = RetrievalPipeline()
-            if await rag.is_indexed(request.circular_id):
-                rag_text = await rag.get_text_for_parser(request.circular_id)
+            if await rag.is_indexed(request.circular_id, db_session=db_session):
+                rag_text = await rag.get_text_for_parser(request.circular_id, db_session=db_session)
                 if rag_text:
                     chunks = rag_text.split("\n\n")
                     logger.info(
@@ -517,6 +555,11 @@ async def trigger_pipeline(request: TriggerRequest) -> dict[str, Any]:
                         len(chunks),
                         len(rag_text),
                         request.circular_id,
+                    )
+                    # Fetch full Chunk objects for evidence provenance (V2 M3)
+                    # Prefer PG, fall back to Chroma
+                    chunk_objects = await _fetch_chunk_objects(
+                        request.circular_id, db_session
                     )
                 else:
                     logger.warning(
@@ -536,6 +579,9 @@ async def trigger_pipeline(request: TriggerRequest) -> dict[str, Any]:
                 "RAG retrieval failed for '%s' — falling back to full PDF extraction",
                 request.circular_id,
             )
+        finally:
+            if db_session is not None:
+                await db_session.close()
 
     try:
         state = await runner.start(
@@ -543,6 +589,7 @@ async def trigger_pipeline(request: TriggerRequest) -> dict[str, Any]:
             circular_id=request.circular_id,
             telemetry_events=telemetry_events,
             chunks=chunks,
+            chunk_objects=chunk_objects,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -944,3 +991,98 @@ def _serialize_verdict(verdict: Any) -> dict[str, Any]:
         return verdict.model_dump(mode="json", exclude_none=True)
     except AttributeError:
         return dict(verdict)
+
+
+# =============================================================================
+# Chunk helper (V2 M4 — PG with Chroma fallback)
+# =============================================================================
+
+
+async def _fetch_chunk_objects(circular_ref: str, db_session=None) -> list[dict]:
+    """Fetch full Chunk objects for evidence provenance.
+
+    Prefers PostgreSQL; falls back to Chroma.
+    """
+    if db_session is not None:
+        try:
+            from app.db.repos.rag_chunk_repo import RagChunkRepo
+            repo = RagChunkRepo(db_session)
+            chunks = await repo.get_by_circular_ref(circular_ref)
+            if chunks:
+                return [c.model_dump(mode="json") for c in chunks]
+        except Exception:
+            pass
+
+    # Chroma fallback
+    try:
+        from app.rag.vector_store import ChromaVectorStore
+        store = ChromaVectorStore()
+        return [c.model_dump(mode="json") for c in store.get_by_circular_ref(circular_ref)]
+    except Exception:
+        return []
+
+
+# =============================================================================
+# LockedFSM + HITL helpers (V2 M4 — PG with disk fallback)
+# =============================================================================
+
+
+def _save_locked_fsms_to_pg(locked_fsms, run_id: str) -> None:
+    """Persist LockedFSM records to PostgreSQL.
+
+    Graceful fallback — if PG is unavailable, records are still on disk
+    via ``persist_locked_fsms``.
+    """
+    try:
+        import asyncio
+        from app.database import AsyncSessionLocal
+        from app.db.repos.locked_fsm_repo import LockedFsmRepo
+
+        async def _save():
+            async with AsyncSessionLocal() as session:
+                repo = LockedFsmRepo(session)
+                await repo.save_batch(list(locked_fsms), run_id)
+                await session.commit()
+
+        asyncio.run(_save())
+        logger.info("Saved %d locked FSM(s) for run '%s' to PostgreSQL", len(locked_fsms), run_id)
+    except Exception:
+        logger.debug("PG save of locked FSMs skipped — records are on disk")
+
+
+def _append_hitl_log_to_pg(
+    run_id: str,
+    locked_fsm_id: str,
+    fsm_id: str,
+    obligation_ref: str,
+    action: str,
+    reviewer: str,
+    comments: str | None = None,
+) -> None:
+    """Append a HITL review log entry to PostgreSQL.
+
+    Graceful fallback — if PG is unavailable, the entry is still in
+    the disk-based `_review_log.json`.
+    """
+    try:
+        import asyncio
+        from app.database import AsyncSessionLocal
+        from app.db.repos.hitl_review_repo import HitlReviewRepo
+
+        async def _append():
+            async with AsyncSessionLocal() as session:
+                repo = HitlReviewRepo(session)
+                await repo.append(
+                    pipeline_run_id=run_id,
+                    locked_fsm_id=locked_fsm_id,
+                    fsm_id=fsm_id,
+                    obligation_ref=obligation_ref,
+                    action=action,
+                    reviewer=reviewer,
+                    comments=comments,
+                )
+                await session.commit()
+
+        asyncio.run(_append())
+    except Exception:
+        logger.debug("PG HITL log append skipped — entry is on disk")

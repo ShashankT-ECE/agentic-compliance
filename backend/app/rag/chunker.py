@@ -42,6 +42,8 @@ class _Topic:
     end_line: int = 0
     roman_section: str = ""
     roman_title: str = ""
+    start_page: int = 1
+    end_page: int = 1
 
 
 @dataclass
@@ -86,30 +88,78 @@ class DocumentChunker:
     # ------------------------------------------------------------------
 
     def chunk_pdf(self, pdf_path: str, circular_ref: str) -> list[Chunk]:
-        """Extract and chunk a PDF into structured Chunk objects."""
-        pages = extract_text_by_page(pdf_path)
-        return self.chunk_text("\n".join(pages), circular_ref)
+        """Extract and chunk a PDF into structured Chunk objects.
 
-    def chunk_text(self, text: str, circular_ref: str) -> list[Chunk]:
-        """Chunk pre-extracted regulatory text."""
+        Builds a line-to-page map from the per-page text so every chunk
+        carries its originating page range (``start_page``, ``end_page``).
+        """
+        pages = extract_text_by_page(pdf_path)
+        line_page_map = self._build_line_page_map(pages)
+        return self.chunk_text("\n".join(pages), circular_ref, line_page_map=line_page_map)
+
+    def chunk_text(
+        self,
+        text: str,
+        circular_ref: str,
+        line_page_map: list[int] | None = None,
+    ) -> list[Chunk]:
+        """Chunk pre-extracted regulatory text.
+
+        Args:
+            text: Full regulatory text (lines separated by ``\\n``).
+            circular_ref: SEBI circular reference number.
+            line_page_map: Optional list mapping each line index to a
+                1-based page number.  When provided, chunks carry
+                ``start_page`` / ``end_page`` metadata.  When *None*
+                (backward-compatible), pages default to 1.
+        """
         if not text.strip():
             return []
 
         lines = text.split("\n")
-        sections = self._detect_structure(lines)
+        sections = self._detect_structure(lines, line_page_map)
 
         if not sections:
             # No structure detected — treat as one flat section
-            return self._flat_chunk(text, circular_ref)
+            total_pages = max(line_page_map) if line_page_map else 1
+            return self._flat_chunk(text, circular_ref, start_page=1, end_page=total_pages)
 
-        return self._sections_to_chunks(sections, lines, circular_ref)
+        return self._sections_to_chunks(sections, lines, circular_ref, line_page_map)
+
+    # ------------------------------------------------------------------
+    # Page mapping
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_line_page_map(pages: list[str]) -> list[int]:
+        """Map each line index to its 1-based PDF page number.
+
+        Args:
+            pages: One string per PDF page (from ``extract_text_by_page``).
+
+        Returns:
+            A list where ``result[line_idx]`` is the page number that line
+            came from.  Lines are numbered 0-based.
+        """
+        line_page_map: list[int] = []
+        for page_num, page_text in enumerate(pages, start=1):
+            page_lines = page_text.split("\n") if page_text.strip() else [""]
+            line_page_map.extend([page_num] * len(page_lines))
+        return line_page_map
 
     # ------------------------------------------------------------------
     # Structure detection
     # ------------------------------------------------------------------
 
-    def _detect_structure(self, lines: list[str]) -> list[_Section]:
+    def _detect_structure(
+        self,
+        lines: list[str],
+        line_page_map: list[int] | None = None,
+    ) -> list[_Section]:
         """Detect Roman sections and numbered topics from lines.
+
+        When *line_page_map* is provided, each topic is annotated with
+        its originating page range (``start_page``, ``end_page``).
 
         Returns a list of _Section objects, each containing _Topic children.
         If no Roman sections are found, returns an empty list.
@@ -118,6 +168,19 @@ class DocumentChunker:
         current_section: _Section | None = None
         current_topic: _Topic | None = None
         roman_seen = False
+
+        def _set_topic_pages(topic: _Topic) -> None:
+            """Compute start_page / end_page from the line-page map."""
+            if line_page_map is None or not line_page_map:
+                return
+            if topic.start_line < len(line_page_map):
+                topic.start_page = line_page_map[topic.start_line]
+            # end_line is exclusive — last line of this topic is at end_line-1
+            last_line = max(topic.start_line, topic.end_line - 1)
+            if last_line < len(line_page_map):
+                topic.end_page = line_page_map[last_line]
+            else:
+                topic.end_page = topic.start_page
 
         for i, raw_line in enumerate(lines):
             line = raw_line.strip()
@@ -130,6 +193,7 @@ class DocumentChunker:
                 if current_section is not None:
                     if current_topic is not None:
                         current_topic.end_line = i
+                        _set_topic_pages(current_topic)
                         current_section.topics.append(current_topic)
                         current_topic = None
                     current_section.end_line = i
@@ -150,6 +214,7 @@ class DocumentChunker:
                 if 1 <= topic_num <= 200 and current_section is not None:
                     if current_topic is not None:
                         current_topic.end_line = i
+                        _set_topic_pages(current_topic)
                         current_section.topics.append(current_topic)
                     current_topic = _Topic(
                         number=topic_num,
@@ -167,6 +232,7 @@ class DocumentChunker:
             if am and current_section is not None:
                 if current_topic is not None:
                     current_topic.end_line = i
+                    _set_topic_pages(current_topic)
                     current_section.topics.append(current_topic)
                 # Use a high topic number for annexures
                 current_topic = _Topic(
@@ -181,6 +247,7 @@ class DocumentChunker:
         if current_section is not None:
             if current_topic is not None:
                 current_topic.end_line = len(lines)
+                _set_topic_pages(current_topic)
                 current_section.topics.append(current_topic)
             current_section.end_line = len(lines)
 
@@ -205,7 +272,11 @@ class DocumentChunker:
     # ------------------------------------------------------------------
 
     def _sections_to_chunks(
-        self, sections: list[_Section], lines: list[str], circular_ref: str
+        self,
+        sections: list[_Section],
+        lines: list[str],
+        circular_ref: str,
+        line_page_map: list[int] | None = None,
     ) -> list[Chunk]:
         """Convert detected sections and topics into Chunk objects."""
         all_blocks: list[tuple[str, _Topic]] = []
@@ -223,11 +294,21 @@ class DocumentChunker:
         chunks = self._apply_size_constraints(all_blocks, circular_ref)
         return chunks
 
+    # ------------------------------------------------------------------
+    # Chunk production
+    # ------------------------------------------------------------------
+
     def _apply_size_constraints(
         self, blocks: list[tuple[str, _Topic]], circular_ref: str
     ) -> list[Chunk]:
-        """Apply min/max chunk size constraints to topic text blocks."""
-        # Step 1: Split oversized blocks at paragraph boundaries
+        """Apply min/max chunk size constraints to topic text blocks.
+
+        Each chunk inherits its page range from the topic that produced it.
+        When two topics are merged, the page range is the union (min start,
+        max end) and the first topic's metadata is used.
+        """
+        # Step 1: Split oversized blocks at paragraph boundaries.
+        # Each sub-chunk inherits its parent topic's metadata.
         expanded: list[tuple[str, _Topic]] = []
         for text, topic in blocks:
             parts = self._size_split(text)
@@ -235,31 +316,37 @@ class DocumentChunker:
                 expanded.append((part, topic))
 
         # Step 2: Merge undersized blocks with neighbors in the same section.
-        # Never merge across Roman section boundaries — that would lose
-        # section metadata and produce misleading citation paths.
-        merged: list[tuple[str, _Topic]] = []
+        # Never merge across Roman section boundaries.
+        # Track (text, topic, merged_start_page, merged_end_page).
+        merge_buf: list[tuple[str, _Topic, int, int]] = []
         for text, topic in expanded:
+            sp, ep = topic.start_page, topic.end_page
             can_merge = (
-                merged
+                merge_buf
                 and len(text) < self._cfg.min_chunk_size
-                and merged[-1][1].roman_section == topic.roman_section
-                and len(merged[-1][0]) + len(text) <= self._cfg.max_chunk_size
+                and merge_buf[-1][1].roman_section == topic.roman_section
+                and len(merge_buf[-1][0]) + len(text) <= self._cfg.max_chunk_size
             )
             if can_merge:
-                prev_text, prev_topic = merged[-1]
-                merged[-1] = (prev_text + "\n\n" + text, prev_topic)
+                pt, ptopic, psp, pep = merge_buf[-1]
+                merge_buf[-1] = (
+                    pt + "\n\n" + text,
+                    ptopic,  # keep first topic's metadata
+                    min(psp, sp),
+                    max(pep, ep),
+                )
             else:
-                merged.append((text, topic))
+                merge_buf.append((text, topic, sp, ep))
 
-        # Step 3: Convert to Chunk objects with metadata
-        chunks: list[Chunk] = []
-        # Count chunks per topic for indexing
+        # Step 3: Convert to Chunk objects with metadata.
+        # Count chunks per topic for chunk_index / chunk_total.
         topic_counts: dict[int, int] = {}
-        topic_indices: dict[int, int] = {}
-        for _, topic in merged:
+        for _, topic, _, _ in merge_buf:
             topic_counts[topic.number] = topic_counts.get(topic.number, 0) + 1
 
-        for text, topic in merged:
+        topic_indices: dict[int, int] = {}
+        chunks: list[Chunk] = []
+        for text, topic, sp, ep in merge_buf:
             idx = topic_indices.get(topic.number, 0)
             total = topic_counts[topic.number]
             meta = ChunkMetadata(
@@ -272,10 +359,10 @@ class DocumentChunker:
                 chunk_index=idx,
                 chunk_total=total,
                 char_count=len(text),
+                start_page=sp,
+                end_page=ep,
             )
-            chunk_id = (
-                f"{circular_ref}::chunk::t{topic.number}::{idx:03d}"
-            )
+            chunk_id = f"{circular_ref}::chunk::t{topic.number}::{idx:03d}"
             chunks.append(Chunk(
                 chunk_id=chunk_id,
                 text=text,
@@ -325,8 +412,21 @@ class DocumentChunker:
 
         return result if result else [text]
 
-    def _flat_chunk(self, text: str, circular_ref: str) -> list[Chunk]:
-        """Create chunks from unstructured text (no section/topic headers detected)."""
+    def _flat_chunk(
+        self,
+        text: str,
+        circular_ref: str,
+        start_page: int = 1,
+        end_page: int = 1,
+    ) -> list[Chunk]:
+        """Create chunks from unstructured text (no section/topic headers detected).
+
+        Args:
+            text: The full document text.
+            circular_ref: SEBI circular reference.
+            start_page: First page of the document (1-based).
+            end_page: Last page of the document (1-based).
+        """
         result = self._size_split(text)
         chunks: list[Chunk] = []
         for i, t in enumerate(result):
@@ -336,6 +436,8 @@ class DocumentChunker:
                 chunk_index=i,
                 chunk_total=len(result),
                 char_count=len(t),
+                start_page=start_page,
+                end_page=end_page,
             )
             chunk_id = f"{circular_ref}::chunk::flat::{i:05d}"
             chunks.append(Chunk(

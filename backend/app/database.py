@@ -104,8 +104,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """Create all tables from the ORM metadata.
 
-    Safe for development and sprint demos. In production, use Alembic migrations
-    instead of calling this directly.
+    Safe for development and sprint demos. In production, use Alembic
+    migrations instead of calling this directly.
     """
+    # Import models so Base.metadata knows about all tables
+    import app.db.models  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

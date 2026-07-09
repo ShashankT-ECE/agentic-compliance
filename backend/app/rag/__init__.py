@@ -1,14 +1,17 @@
 """
-RAG (Retrieval-Augmented Generation) subsystem — V2 M1.
+RAG (Retrieval-Augmented Generation) subsystem — V2 M2.
 
 Provides structure-aware chunking, local embeddings, Chroma vector storage,
-and a retrieval pipeline for processing large regulatory PDFs.
+a retrieval pipeline, and a circular registry for multi-circular support.
 
 Public API:
   - DocumentChunker       — chunk PDF text at section boundaries
   - LocalEmbedder         — generate embeddings via sentence-transformers
   - ChromaVectorStore     — store and query chunks in Chroma
   - RetrievalPipeline     — orchestrate retrieval for parser integration
+  - CircularRecord        — metadata record for an indexed circular
+  - JsonCircularRegistry  — JSON-file-backed circular registry
+  - get_registry          — module-level registry singleton
   - RagConfig             — YAML-driven configuration
 
 Imports are deferred to avoid circular dependencies and allow incremental
@@ -18,6 +21,14 @@ module availability during implementation.
 from app.rag.schemas import Chunk, ChunkMetadata, RetrievalResult
 from app.rag.config import RagConfig, load_rag_config
 from app.rag.chunker import DocumentChunker
+from app.rag.circular_registry import (
+    CircularRecord,
+    CircularRegistryBackend,
+    JsonCircularRegistry,
+    build_record,
+    get_registry,
+    reset_registry,
+)
 
 
 def _lazy_import(name: str) -> object:
@@ -77,4 +88,10 @@ __all__ = [
     "LocalEmbedder",
     "ChromaVectorStore",
     "RetrievalPipeline",
+    "CircularRecord",
+    "CircularRegistryBackend",
+    "JsonCircularRegistry",
+    "build_record",
+    "get_registry",
+    "reset_registry",
 ]

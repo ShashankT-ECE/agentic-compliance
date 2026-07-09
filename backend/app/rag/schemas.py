@@ -26,6 +26,8 @@ class ChunkMetadata(BaseModel):
     chunk_index: int = Field(default=0, description="0-based index within parent section")
     chunk_total: int = Field(default=1, description="Total chunks in parent section")
     char_count: int = Field(default=0, description="Character count of this chunk")
+    start_page: int = Field(default=1, ge=1, description="First PDF page of this chunk (1-based)")
+    end_page: int = Field(default=1, ge=1, description="Last PDF page of this chunk (1-based)")
 
 
 class Chunk(BaseModel):

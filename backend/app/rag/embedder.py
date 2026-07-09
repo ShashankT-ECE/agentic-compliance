@@ -138,8 +138,11 @@ class LocalEmbedder:
             raise
 
     def _encode_sync(self, texts: list[str]) -> list[list[float]]:
-        """Synchronous encode (called via asyncio.to_thread)."""
-        assert self._model is not None, "Model not loaded"
+        """Synchronous encode (called via asyncio.to_thread or directly).
+
+        Loads the model lazily on first call.
+        """
+        self._ensure_loaded()
         # sentence-transformers encode returns a numpy array
         embeddings = self._model.encode(
             texts,
