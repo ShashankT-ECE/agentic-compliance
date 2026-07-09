@@ -73,6 +73,7 @@ class DeepSeekClient(LLMClient):
         DEEPSEEK_API_KEY: API key (required).
         DEEPSEEK_BASE_URL: Base URL (default: https://api.deepseek.com/v1).
         DEEPSEEK_MODEL: Model name (default: deepseek-chat).
+        DEEPSEEK_TIMEOUT: Request timeout in seconds (default: 300).
 
     Usage:
         client = DeepSeekClient()
@@ -84,12 +85,13 @@ class DeepSeekClient(LLMClient):
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
     ) -> None:
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY", "")
         self.base_url = (base_url or os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")).rstrip("/")
         self.model = model or os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-        self.timeout = timeout
+        env_timeout = os.getenv("DEEPSEEK_TIMEOUT")
+        self.timeout = float(env_timeout) if env_timeout else timeout
 
         if not self.api_key:
             logger.warning(
