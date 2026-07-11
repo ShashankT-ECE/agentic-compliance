@@ -99,8 +99,67 @@ class DeepSeekClient(LLMClient):
                 "Set the environment variable or pass api_key explicitly."
             )
 
-    async def generate(self, system_prompt: str, user_message: str, *, temperature: float = 0.1) -> str:
-        """Call the DeepSeek chat completions endpoint."""
+    # ------------------------------------------------------------------
+    # Response cache — guarantees deterministic extraction across runs.
+    # DeepSeek's seed parameter is advisory, not a hard reproducibility
+    # guarantee.  This file-based cache ensures identical inputs always
+    # return identical outputs, independent of API-side non-determinism.
+    # ------------------------------------------------------------------
+    _CACHE_DIR: str | None = None
+
+    @classmethod
+    def _cache_dir(cls) -> Path:
+        import hashlib
+        if cls._CACHE_DIR is None:
+            from pathlib import Path as _Path
+            cls._CACHE_DIR = _Path(__file__).resolve().parent.parent.parent / "data" / "llm_cache"
+        return Path(cls._CACHE_DIR)
+
+    @staticmethod
+    def _cache_key(model: str, system_prompt: str, user_message: str) -> str:
+        import hashlib
+        h = hashlib.sha256()
+        h.update(model.encode("utf-8"))
+        h.update(system_prompt.encode("utf-8"))
+        h.update(user_message.encode("utf-8"))
+        return h.hexdigest()
+
+    def _cache_get(self, cache_key: str) -> str | None:
+        path = self._cache_dir() / cache_key
+        if path.exists():
+            try:
+                return path.read_text(encoding="utf-8")
+            except Exception:
+                return None
+        return None
+
+    def _cache_set(self, cache_key: str, response: str) -> None:
+        try:
+            d = self._cache_dir()
+            d.mkdir(parents=True, exist_ok=True)
+            (d / cache_key).write_text(response, encoding="utf-8")
+        except Exception:
+            logger.debug("Failed to write LLM cache entry — continuing without cache")
+
+    # ------------------------------------------------------------------
+
+    async def generate(self, system_prompt: str, user_message: str, *, temperature: float = 0.0) -> str:
+        """Call the DeepSeek chat completions endpoint.
+
+        Responses are cached by default (keyed on model + prompt hash)
+        so identical inputs always produce identical outputs — extraction
+        is deterministic regardless of API-side variability.
+
+        Pass ``temperature > 0`` to bypass the cache.
+        """
+        # ── Cache lookup ──
+        if temperature == 0.0:
+            ck = self._cache_key(self.model, system_prompt, user_message)
+            cached = self._cache_get(ck)
+            if cached is not None:
+                logger.info("LLM cache hit (%d chars)", len(cached))
+                return cached
+
         url = f"{self.base_url}/chat/completions"
 
         payload: dict[str, Any] = {
@@ -112,6 +171,15 @@ class DeepSeekClient(LLMClient):
             "temperature": temperature,
             "max_tokens": 65536,
         }
+        # Deterministic extraction: when temperature is 0, pin the RNG seed
+        # so the same prompt always produces the same completion.  The seed
+        # is a stable 32-bit hash of the combined prompt text.
+        if temperature == 0.0:
+            import hashlib
+            seed_bytes = hashlib.sha256(
+                (system_prompt + user_message).encode("utf-8")
+            ).digest()[:4]
+            payload["seed"] = int.from_bytes(seed_bytes, "big")
 
         headers: dict[str, str] = {
             "Authorization": f"Bearer {self.api_key}",
@@ -128,6 +196,11 @@ class DeepSeekClient(LLMClient):
 
             content: str = data["choices"][0]["message"]["content"]
             logger.info("DeepSeek response received: %d chars", len(content))
+
+            # Cache the response so subsequent identical calls are deterministic.
+            if temperature == 0.0:
+                self._cache_set(ck, content)
+
             return content
 
         except httpx.TimeoutException:
