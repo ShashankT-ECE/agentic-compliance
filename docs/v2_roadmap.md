@@ -1,7 +1,7 @@
 # V2 Roadmap — Regulatory Intelligence Platform
 
 > **Version**: 2.0 — 2026-07-09
-> **Status**: Active — V2 M1 + M2 complete, M3 in design
+> **Status**: Active — V2 M1–M4 complete, M5 next
 > **Canonical source of truth** for V2 architecture decisions
 
 ---
@@ -83,11 +83,11 @@ Circular → Page → Section → Chunk → Parser → Obligation → FSM → Ev
 ```
 V2 M6: Tamper-Evident Audit Log
  │
-V2 M5: Compliance Scenario Library
+V2 M5: Compliance Scenario Library   ← NEXT
  │
-V2 M4: PostgreSQL Migration
+V2 M4: PostgreSQL Migration ✅
  │
-V2 M3: Evidence Traceability   ← NEXT (in design)
+V2 M3: Evidence Traceability ✅
  │
 V2 M2: Multi-Circular Retrieval ✅
  │
@@ -146,7 +146,7 @@ Index multiple SEBI circulars simultaneously. Circular registry, multi-circular 
 
 ---
 
-## M3 — Evidence Traceability (In Design)
+## M3 — Evidence Traceability ✅ COMPLETE
 
 ### Objective
 
@@ -168,7 +168,7 @@ See M3 design document for full details.
 
 ---
 
-## M4 — PostgreSQL Migration
+## M4 — PostgreSQL Migration ✅ COMPLETE
 
 ### Objective
 
@@ -176,12 +176,12 @@ Replace in-memory stores and JSON files with PostgreSQL. Prepare for pgvector.
 
 ### Key deliverables
 
-1. Replace `_run_store` (in-memory dict) with SQLAlchemy models.
-2. Replace `_report_store` (in-memory dict) with DB.
-3. Replace `JsonCircularRegistry` with `PostgresCircularRegistry`.
-4. Add Alembic migrations.
-5. Docker Compose with PostgreSQL service.
-6. All 490 tests pass against PostgreSQL.
+1. ✅ Replace `_run_store` (in-memory dict) with SQLAlchemy models.
+2. ✅ Replace `_report_store` (in-memory dict) with DB.
+3. ✅ Replace `JsonCircularRegistry` with `PostgresCircularRegistry`.
+4. ✅ Add Alembic migrations.
+5. ✅ Docker Compose with PostgreSQL service.
+6. ✅ All 642 tests pass against PostgreSQL.
 
 ### Do NOT change evaluator behaviour.
 

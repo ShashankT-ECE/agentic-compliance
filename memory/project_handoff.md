@@ -64,8 +64,8 @@ PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evalu
 | V1.0.2 | Final Demo Polish + Evaluator Fix + Explanation UX | ✅ Complete (`401b659`) |
 | V2 M1 | Regulatory RAG Architecture | ✅ Complete (`32149c8`) |
 | V2 M2 | Multi-Circular Retrieval | ✅ Complete |
-| V2 M3 | Evidence Traceability | ⬅ NEXT |
-| V2 M4 | PostgreSQL Migration | Pending |
+| V2 M3 | Evidence Traceability | ✅ Complete (`1754c66`) |
+| V2 M4 | PostgreSQL Migration | ✅ Complete (`f231741`) |
 | V2 M5 | Compliance Scenario Library | Pending |
 | V2 M6 | Tamper-Evident Audit Log | Pending |
 
@@ -81,8 +81,14 @@ PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evalu
 - Circular Registry for tracking indexed circulars (document hash, index version).
 - CLI for indexing, search, multi-circular management.
 - React dashboard for compliance status visualization.
-- 490 tests (410 V1 + 80 RAG).
+- 642 tests (410 V1 + 232 V2).
 - Deterministic explanation column in audit reports.
+- Evidence traceability chain: Circular → Page → Chunk → Obligation → FSM → Verdict (V2 M3).
+- PDF bounding-box extraction with pdfplumber for source text highlighting (V2 M3).
+- PDF.js viewer with clickable citation regions (V2 M3).
+- PostgreSQL persistence: 9 tables, 6 repositories, Alembic migrations (V2 M4).
+- Graceful degradation to in-memory stores + JSON fallback when PostgreSQL unavailable (V2 M4).
+- LLM response caching for deterministic extraction across runs (V2 M4).
 - Validated end-to-end against official SEBI circular `SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57`.
 
 ## Important Constraints
@@ -120,6 +126,10 @@ PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evalu
 | `GET` | `/api/rag/circulars` | List all indexed circulars | **V2 M2** |
 | `POST` | `/api/rag/index-all` | Batch-index circulars | **V2 M2** |
 | `DELETE` | `/api/rag/circular/{circular_ref}` | Remove circular from index | **V2 M2** |
+| `GET` | `/api/evidence/{verdict_id}` | Full evidence chain | **V2 M3** |
+| `GET` | `/api/evidence/fsm/{locked_fsm_id}` | FSM source chunks | **V2 M3** |
+| `GET` | `/api/chunks/{chunk_id}/positions` | Bounding-box positions | **V2 M3** |
+| `GET` | `/api/circulars/{circular_ref}/pdf` | Serve source PDF | **V2 M3** |
 
 ## Technology Stack
 
@@ -127,7 +137,8 @@ PDF Parser (Node 1) → FSM Extractor (Node 2) → HITL Gate → Assertion Evalu
 |-------|-----------|
 | Backend | Python 3.11+, FastAPI, LangGraph |
 | RAG | Chroma (dev), bge-small-en-v1.5 embeddings, sentence-transformers |
-| Circular Registry | JSON-file (dev) → PostgreSQL (V2 M4) |
+| Circular Registry | JSON-file (dev) + PostgreSQL (prod) |
+| Database | PostgreSQL 16 + asyncpg + SQLAlchemy 2.0 + Alembic |
 | Frontend | TypeScript, React 19, Vite, Zustand |
 | Database | In-memory stores + JSON files (V2) → PostgreSQL + pgvector (V2 M4) |
 | Integrity | SHA-256 hash-chain |

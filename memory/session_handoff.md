@@ -6,107 +6,83 @@
 
 | Field | Value |
 |-------|-------|
-| **Date** | 2026-07-09 |
+| **Date** | 2026-07-11 |
 | **Developer** | Brad (Friend — Windows + WSL2) |
 | **Branch** | `dev` |
-| **Latest Commit** | Pending — `feat(v2-m2): implement multi-circular retrieval` |
-| **Repository State** | M2 implementation complete, uncommitted. All tests pass. |
-| **Overall Status** | **V1.0.2 FROZEN — V2 M1 + M2 COMPLETE — M3 NEXT** |
+| **Latest Commits** | `b71e86d` (perf), `1754c66` (M3+M4), `f231741` (M4 frontend), `32149c8` (M1) |
+| **Repository State** | 642 tests pass. Frontend builds clean (93 modules). Doc polish in progress. |
+| **Overall Status** | **V1.0.2 FROZEN — V2 M1–M4 COMPLETE — Hackathon polish in progress** |
 
 ---
 
-## What Was Done — V2 M2 (Multi-Circular Retrieval)
+## What Was Done — V2 M3 (Evidence Traceability)
 
 ### Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     REGULATORY KNOWLEDGE LAYER                       │
-│                                                                     │
-│  CircularRegistry (JSON)   ChromaVectorStore (persistent)           │
-│  ┌─────────────────────┐   ┌──────────────────────────────────┐    │
-│  │ circular_ref        │──→│ chunks + embeddings per circular │    │
-│  │ pdf_path            │   │ list_circulars()                 │    │
-│  │ document_hash       │   │ count_by_circular()              │    │
-│  │ index_version       │   │ get_by_circular_ref()            │    │
-│  │ indexed_at          │   │ delete_circular()                │    │
-│  │ chunk_count         │   └──────────────────────────────────┘    │
-│  │ char_count          │                                           │
-│  └─────────────────────┘                                           │
-│           │                              │                          │
-│  GET /api/rag/circulars          RetrievalPipeline                 │
-│  POST /api/rag/index-all         .search(query, circular_ref=X)    │
-│  DELETE /api/rag/circular/{ref}  .get_text_for_parser(ref)         │
-│                                                                     │
-│  CLI: list | index-all | delete                                    │
-└─────────────────────────────────────────────────────────────────────┘
-```
+Evidence models (`EvidenceReference`, `ChunkCitation`, `PageRegion`, `Rectangle`, `ObligationSource`, `FSMProvenance`) linking verdicts back to source chunks and PDF page regions.
 
-### New files created (2)
+### Components
 
-| File | Purpose |
-|------|---------|
-| `backend/app/rag/circular_registry.py` | `CircularRecord` model, `CircularRegistryBackend` Protocol, `JsonCircularRegistry`, module-level `build_record()` |
-| `backend/tests/test_rag_multi_circular.py` | 10 tests for new API endpoints (list, index-all, delete) |
-
-### Files modified (6)
-
-| File | Change |
-|------|--------|
-| `backend/app/rag/__init__.py` | +6 exports (CircularRecord, Backend, build_record, get_registry, reset_registry) |
-| `backend/app/rag/vector_store.py` | `list_circulars()` method |
-| `backend/app/rag/embedder.py` | `_encode_sync()` calls `_ensure_loaded()` (bug fix) |
-| `backend/app/api/routes/rag.py` | 3 new endpoints + `index` now registers in registry |
-| `backend/app/cli.py` | 3 new commands: `list`, `index-all`, `delete` |
-| `backend/tests/test_rag_retrieval.py` | +6 tests (cross-circular search + chunk provenance) |
-| `backend/tests/test_rag_vector_store.py` | +4 tests (list_circulars) |
+| Component | File | Purpose |
+|-----------|------|---------|
+| Evidence models | `app/models/evidence.py` | Provenance chain Pydantic models |
+| Attribution strategy | `app/pipeline/attribution.py` | Protocol-based chunk→obligation mapping |
+| Evidence service | `app/pipeline/evidence_service.py` | Orchestrates evidence assembly |
+| Bbox extractor | `app/utils/bbox_extractor.py` | pdfplumber word-level position extraction |
+| Evidence API | `app/api/routes/evidence.py` | 4 endpoints (verdict evidence, FSM evidence, chunk positions, PDF serving) |
+| PDF.js viewer | `frontend/src/components/PDFViewer/` | In-browser PDF rendering with highlights |
+| Evidence panel | `frontend/src/components/EvidencePanel/` | Provenance chain display |
+| Evidence page | `frontend/src/pages/evidence.tsx` | Side-by-side PDF + evidence viewer |
 
 ### Key design decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| **`CircularRegistryBackend` Protocol** | 4-method protocol. JSON now, PostgreSQL in M4. Callers never import the concrete implementation. |
-| **`build_record()` module-level function** | Not tied to any persistence backend. Works with JSON, PostgreSQL, or future backends. |
-| **`get_registry()` returns Protocol type** | Callers are type-safe against the protocol, not `JsonCircularRegistry`. |
-| **`{circular_ref:path}` on all URL params** | SEBI refs contain slashes. FastAPI `:path` converter preserves them. |
-| **document_hash + index_version** | SHA-256 hash of PDF at index time + version tag. Supports incremental re-indexing and embedding migration. |
-| **Chunk provenance preserved** | All `RetrievalResult` objects carry full metadata (circular_ref, section_path, topic_number, etc.) — M3 ready. |
-
-### Test results
-
-| Suite | Tests | Status |
-|-------|-------|--------|
-| V1 (unchanged) | 410 | ✅ 410 passed |
-| M1 RAG | 37 | ✅ 37 passed |
-| M2 Registry | 23 | ✅ 23 passed |
-| M2 Multi-circular API | 10 | ✅ 10 passed |
-| M2 Retrieval + Vector Store | +10 | ✅ 10 passed |
-| **Total** | **490** | **490 passed, 0 failed, 1 warning** |
+| **Conservative attribution** | All input chunks attributed to all output obligations. Safest for audit. |
+| **AttributionStrategy Protocol** | Swappable without changing downstream code. |
+| **Evidence models independent of PDF** | `PageRegion`/`Rectangle` not in `ChunkMetadata` — keep RAG and evidence layers decoupled. |
+| **Bbox cache at `data/bbox/`** | Disk-cached per chunk_id. Extract once, serve many times. |
+| **Batch bbox extraction** | Open PDF once, extract all chunks in one pass. |
 
 ---
 
-## Remaining Known Issues
+## What Was Done — V2 M4 (PostgreSQL Migration)
 
-- **399-page Master Circular parser stress** — `max_tokens=16384` consumed by v4 Pro reasoning. RAG path mitigates this.
-- **HITL queue accumulates historical runs** — stale directories from test runs.
-- **PDF path UX** — backend expects backend-root-relative paths.
-- `docs/architecture.pdf` broken (ASCII placeholder) — V2.
-- In-memory stores — V2 M4 (PostgreSQL).
-- No authentication — V2 M4.
-- Docker Compose incomplete — V2 M4.
-- Frontend tests — V2 M4.
-- Chroma not yet indexed (collection is empty).
-- Registry JSON file is a dev mechanism — M4 DB migration.
+### Architecture
+
+9 SQLAlchemy ORM models replacing in-memory stores. 6 repository classes with PG-first, in-memory-fallback pattern.
+
+### Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| DB models | `app/db/models.py` | 9 ORM models (circular_records, pipeline_runs, verdicts, locked_fsms, hitl_review_log, reports, evidence_references, rag_chunks, telemetry_events) |
+| Repository base | `app/db/repos/base.py` | Base repository pattern |
+| Circular repo | `app/db/repos/circular_repo.py` | Circular CRUD |
+| Pipeline run repo | `app/db/repos/pipeline_run_repo.py` | Pipeline run persistence |
+| Locked FSM repo | `app/db/repos/locked_fsm_repo.py` | LockedFSM persistence |
+| HITL review repo | `app/db/repos/hitl_review_repo.py` | Append-only audit log |
+| RAG chunk repo | `app/db/repos/rag_chunk_repo.py` | Chunk text persistence |
+| Alembic migration | `alembic/versions/001_initial_schema.py` | Full initial schema |
+| Database config | `app/database.py` | Async SQLAlchemy engine + session |
+
+### Key design decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **PG-first, Chroma-fallback** | PG is the authoritative store for text/metadata. Chroma for embeddings only. |
+| **Graceful degradation** | System runs fully (with in-memory stores + JSON files) when PG is unavailable. |
+| **state_blob JSON column** | Full `CompliancePipelineState` serialized as JSON in pipeline_runs. Complete audit trail. |
+| **hitl_review_log INSERT-only** | Immutable audit trail. Never UPDATE or DELETE. |
 
 ---
 
-## Next Milestone
+## M5–M6 — Pending
 
-**V2 M3 — Evidence Traceability**
-
-Objective: Every compliance decision traceable back to exact regulatory text.
-
-See M3 design document section in the session output for detailed design.
+| M | Name | Key Deliverables |
+|---|------|-----------------|
+| M5 | Compliance Scenario Library | 8 scenario types (clean pass/fail, boundary, exception, missing events, out-of-order, duplicates). Each becomes a regression test. |
+| M6 | Tamper-Evident Audit Log | Merkle tree over verdicts, root hash in reports, incremental proof generation. |
 
 ---
 
@@ -117,26 +93,19 @@ cd /home/bradha/agentic-compliance
 git checkout dev
 git pull origin dev
 
-# Kill stale server
+# Kill stale processes
 fuser -k 8000/tcp 2>/dev/null
+fuser -k 5173/tcp 2>/dev/null
 
 # Verify
 cd backend
 source .venv/bin/activate
-python -m pytest tests/ -v        # 490 tests
+python -m pytest tests/ -v        # 642 tests
 cd ../frontend
-npm run build                      # 52 modules
+npm run build                      # 93 modules
 
-# Index a circular (first time)
-python -m app.cli index \
-  --pdf-path data/circulars/SEBI-HO-MIRSD-MIRSD-PoD-P-CIR-2025-57-official.pdf \
-  --circular-ref "SEBI/HO/MIRSD/MIRSD-PoD/P/CIR/2025/57"
-
-# List indexed circulars
-python -m app.cli list
-
-# Search indexed circulars
-python -m app.cli search --query "margin collection deadline" --top-k 5
+# Start PostgreSQL
+docker compose up -d db
 
 # Start backend
 cd ../backend && source .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000 &
@@ -146,11 +115,9 @@ cd ../frontend && npm run dev
 ```
 
 **CRITICAL RULES:**
-- Do not redesign M0–M2 — all milestones are independently verified.
+- Do not redesign M0–M4 — all milestones are independently verified.
 - V1 is frozen — do not modify pipeline, models, evaluator, or API.
 - Node 3 safety gate (no LLM) must never be violated.
-- All 490 tests must continue to pass.
+- All 642 tests must continue to pass.
 - `use_rag=False` default — V1 path unchanged.
-- Parser contract should remain stable.
-- RetrievalPipeline should remain stable unless absolutely necessary.
 - Server must be restarted after any backend code change.
